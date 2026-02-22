@@ -308,6 +308,7 @@ class EmbodiedAgent:
         self,
         user_input: str,
         on_action: Callable[[str, dict], None] | None = None,
+        on_text: Callable[[str], None] | None = None,
         desires=None,
     ) -> str:
         """Run one conversation turn with the agent loop."""
@@ -335,13 +336,17 @@ class EmbodiedAgent:
         for i in range(MAX_ITERATIONS):
             logger.debug("Agent iteration %d", i + 1)
 
-            response = await self.client.messages.create(
+            async with self.client.messages.stream(
                 model=self.model,
                 max_tokens=self.config.max_tokens,
                 system=self._system_prompt(feelings_ctx),
                 tools=self._all_tool_defs,
                 messages=self.messages,
-            )
+            ) as stream:
+                async for chunk in stream.text_stream:
+                    if on_text:
+                        on_text(chunk)
+                response = await stream.get_final_message()
 
             self.messages.append({"role": "assistant", "content": response.content})
 
@@ -405,13 +410,17 @@ class EmbodiedAgent:
                 "content": "Please summarize what you found and provide your final answer now.",
             }
         )
-        final = await self.client.messages.create(
+        async with self.client.messages.stream(
             model=self.model,
             max_tokens=self.config.max_tokens,
             system=self._system_prompt(),
             tools=[],
             messages=self.messages,
-        )
+        ) as stream:
+            async for chunk in stream.text_stream:
+                if on_text:
+                    on_text(chunk)
+            final = await stream.get_final_message()
         texts = [b.text for b in final.content if hasattr(b, "text")]
         return "\n".join(texts) if texts else "(max iterations reached)"
 

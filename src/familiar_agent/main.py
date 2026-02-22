@@ -82,6 +82,9 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
     def on_action(name: str, tool_input: dict) -> None:
         print(f"  {_format_action(name, tool_input)}", flush=True)
 
+    def on_text(chunk: str) -> None:
+        print(chunk, end="", flush=True)
+
     try:
         while True:
             # Drain any pending user input first (user spoke while agent was busy)
@@ -96,7 +99,7 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
             if pending:
                 # Process all buffered user messages before doing anything autonomous
                 for user_input in pending:
-                    await _handle_user(user_input, agent, desires, on_action, debug)
+                    await _handle_user(user_input, agent, desires, on_action, on_text, debug)
                 continue
 
             # No pending input — show prompt and wait briefly
@@ -125,11 +128,16 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                         if item is None:
                             break
                         if item:
-                            await _handle_user(item, agent, desires, on_action, debug)
+                            await _handle_user(item, agent, desires, on_action, on_text, debug)
                             continue
 
-                    response = await agent.run(prompt, on_action=on_action, desires=desires)
-                    print(f"\n{response}")
+                    print()
+                    await agent.run(
+                        prompt,
+                        on_action=on_action,
+                        on_text=on_text,
+                        desires=desires,
+                    )
                     desires.satisfy(desire_name)
                     desires.curiosity_target = None
 
@@ -142,11 +150,11 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                         if item:
                             buffered.append(item)
                     for msg in buffered:
-                        await _handle_user(msg, agent, desires, on_action, debug)
+                        await _handle_user(msg, agent, desires, on_action, on_text, debug)
                 continue
 
             if user_input:
-                await _handle_user(user_input, agent, desires, on_action, debug)
+                await _handle_user(user_input, agent, desires, on_action, on_text, debug)
 
     except (KeyboardInterrupt, EOFError):
         pass
@@ -160,6 +168,7 @@ async def _handle_user(
     agent: EmbodiedAgent,
     desires: DesireSystem,
     on_action,
+    on_text,
     debug: bool,
 ) -> None:
     """Process a single user message."""
@@ -176,10 +185,10 @@ async def _handle_user(
                 bar = "█" * int(level * 20)
                 print(f"  {name:20s} {level:.2f} {bar}")
     else:
-        response = await agent.run(user_input, on_action=on_action, desires=desires)
-        print(f"\n{response}")
+        print()
+        await agent.run(user_input, on_action=on_action, on_text=on_text, desires=desires)
         if desires.curiosity_target:
-            print(f"  [気になること: {desires.curiosity_target}]")
+            print(f"\n  [気になること: {desires.curiosity_target}]")
         desires.satisfy("greet_companion")
 
 
