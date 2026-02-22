@@ -10,6 +10,8 @@
 
 ---
 
+[![Vidéo de démo](https://img.youtube.com/vi/kakc5jUBFjM/0.jpg)](https://youtube.com/shorts/kakc5jUBFjM)
+
 familiar-ai est une IA compagne qui vit dans votre maison.
 Installez-la en quelques minutes. Aucun code requis.
 
