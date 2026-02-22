@@ -201,6 +201,10 @@ Images and text are sent to your chosen LLM API for processing. Memories are sto
 **Q: Why does the agent write `（...）` instead of speaking?**
 Make sure `ELEVENLABS_API_KEY` is set. Without it, voice is disabled and the agent falls back to text.
 
+## Technical background
+
+Curious about how it works? See [docs/technical.md](./docs/technical.md) for the research and design decisions behind familiar-ai — ReAct, SayCan, Reflexion, Voyager, the desire system, and more.
+
 ## License
 
 [MIT](./LICENSE)
