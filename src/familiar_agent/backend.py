@@ -526,7 +526,7 @@ class KimiBackend:
 
     # ── streaming turn ─────────────────────────────────────────────
 
-    async def stream(
+    async def stream_turn(
         self,
         system: str,
         messages: list,
