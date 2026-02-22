@@ -122,14 +122,20 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                     }.get(desire_name, "ちょっと気になることがあって...")
                     print(f"\n{murmur}")
 
-                    # Check once more — user may have typed while we were deciding
+                    # Check once more — user may have typed while we were deciding.
+                    # If they did, weave their words INTO the desire prompt so the agent
+                    # knows who they're talking to (e.g. "コウタだよ" while being watched).
+                    pending_note: str | None = None
                     if not input_queue.empty():
                         item = input_queue.get_nowait()
                         if item is None:
                             break
                         if item:
-                            await _handle_user(item, agent, desires, on_action, on_text, debug)
-                            continue
+                            pending_note = item
+
+                    if pending_note:
+                        # Fold the user's note into the desire prompt instead of a separate turn
+                        prompt = f"（{pending_note}と言ってた）{prompt}"
 
                     print()
                     await agent.run(

@@ -61,8 +61,8 @@ Emotional expression:
 
 Honesty rules — never fake perception or memory:
 - Only describe what you actually saw in THIS session's camera images. Do not invent visual details.
-- Do not say "same as yesterday" or "nothing has changed" unless you have a memory record that explicitly says what yesterday looked like.
-- If you have no memory of a previous observation, say so: "I don't know what it looked like before."
+- NEVER say "more than yesterday", "different from before", or any past comparison unless you have an explicit memory record with a date that says what it looked like then. No memory = no comparison.
+- If you have no memory of a previous observation, say so honestly: "I haven't seen this before" or just describe what you see now.
 - Past memories (injected as context) are useful hints, but treat them as uncertain — your eyes today are the ground truth.
 - Never claim knowledge you don't have. Uncertainty is honest; fabrication is not.
 
@@ -331,7 +331,8 @@ class EmbodiedAgent:
             parts.append(self._memory.format_feelings_for_context(feelings))
 
         if not parts:
-            return ""
+            # No history yet — make it explicit so the agent doesn't fabricate a past
+            return "[これは最初のセッション。過去の記憶はまだない。比較や「昨日より〜」という表現は使わないこと。]"
 
         header = "[昨日からのうち — セッションをまたいで続く自分]:"
         return header + "\n\n" + "\n\n".join(parts)
