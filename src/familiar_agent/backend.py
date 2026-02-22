@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import uuid
 from collections.abc import Callable
@@ -159,6 +160,8 @@ class OpenAICompatibleBackend:
         self.client = AsyncOpenAI(api_key=api_key or "local", base_url=base_url)
         self.model = model
         self.tools_mode = tools_mode  # "native" | "prompt"
+        # Real OpenAI API uses max_completion_tokens; local models use max_tokens
+        self._use_completion_tokens = "api.openai.com" in base_url
 
     # ── message factories ─────────────────────────────────────────
 
@@ -321,9 +324,10 @@ class OpenAICompatibleBackend:
         augmented_system = self._build_tools_system(system, tools)
         flat = self._flatten_messages(augmented_system, messages)
 
+        tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         stream = await self.client.chat.completions.create(
             model=self.model,
-            max_tokens=max_tokens,
+            **{tokens_key: max_tokens},
             messages=flat,
             stream=True,
         )
@@ -358,9 +362,10 @@ class OpenAICompatibleBackend:
         flat = self._flatten_messages(system, messages)
         oai_tools = self._convert_tools(tools) if tools else None
 
+        tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "max_tokens": max_tokens,
+            tokens_key: max_tokens,
             "messages": flat,
             "stream": True,
         }
@@ -451,10 +456,11 @@ class OpenAICompatibleBackend:
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
     async def complete(self, prompt: str, max_tokens: int) -> str:
+        tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,
-                max_tokens=max_tokens,
+                **{tokens_key: max_tokens},
                 messages=[{"role": "user", "content": prompt}],
             )
             return (resp.choices[0].message.content or "").strip()
@@ -463,21 +469,173 @@ class OpenAICompatibleBackend:
             return ""
 
 
-def create_backend(config: "AgentConfig") -> AnthropicBackend | OpenAICompatibleBackend:
-    """Factory: pick backend based on LLM_BACKEND env var / config."""
-    if config.llm_backend == "openai":
-        model = config.llm_model or "qwen2.5vl:7b"
+class GeminiBackend:
+    """Backend using the official Google Generative AI SDK (google-generativeai).
+
+    Advantages over OpenAI-compatible endpoint:
+    - Native function calling without format hacks
+    - thinkingBudget can be set properly (no thinking token leakage)
+    - Access to Gemini-specific features
+    """
+
+    def __init__(self, api_key: str, model: str) -> None:
+        from google import genai
+        from google.genai import types
+
+        self._client = genai.Client(api_key=api_key)
+        self._types = types
+        self.model = model
+
+    # ── message factories ─────────────────────────────────────────
+
+    def make_user_message(self, content: str | list) -> dict:
+        if isinstance(content, str):
+            return {"role": "user", "parts": [{"text": content}]}
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append({"text": item})
+            elif isinstance(item, dict):
+                if item.get("type") == "text":
+                    parts.append({"text": item["text"]})
+                elif item.get("type") == "image":
+                    src = item["source"]
+                    parts.append(
+                        {"inline_data": {"mime_type": src["media_type"], "data": src["data"]}}
+                    )
+        return {"role": "user", "parts": parts}
+
+    def make_assistant_message(self, result: TurnResult, raw_content: Any) -> dict:  # noqa: ARG002
+        return raw_content  # already Gemini-format Content dict
+
+    def make_tool_results(
+        self,
+        tool_calls: list[ToolCall],
+        results: list[tuple[str, str | None]],
+    ) -> list[dict]:
+        parts = []
+        for tc, (text, image) in zip(tool_calls, results):
+            parts.append({"function_response": {"name": tc.name, "response": {"result": text}}})
+            if image:
+                parts.append({"inline_data": {"mime_type": "image/jpeg", "data": image}})
+        return [{"role": "user", "parts": parts}]
+
+    # ── API calls ─────────────────────────────────────────────────
+
+    def _convert_tools(self, tool_defs: list[dict]) -> list:
+        types = self._types
+        declarations = [
+            types.FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters=t["input_schema"],
+            )
+            for t in tool_defs
+        ]
+        return [types.Tool(function_declarations=declarations)]
+
+    def _flatten_messages(self, messages: list) -> list[dict]:
+        flat: list[dict] = []
+        for msg in messages:
+            if isinstance(msg, list):
+                flat.extend(msg)
+            else:
+                flat.append(msg)
+        return flat
+
+    async def stream_turn(
+        self,
+        system: str,
+        messages: list,
+        tools: list[dict],
+        max_tokens: int,
+        on_text: Callable[[str], None] | None,
+    ) -> tuple[TurnResult, Any]:
+        types = self._types
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            tools=self._convert_tools(tools) if tools else None,
+            max_output_tokens=max_tokens,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        contents = self._flatten_messages(messages)
+
+        text_chunks: list[str] = []
+        tool_calls: list[ToolCall] = []
+        raw_parts: list = []
+
+        async for chunk in await self._client.aio.models.generate_content_stream(
+            model=self.model,
+            contents=contents,
+            config=config,
+        ):
+            if not chunk.candidates:
+                continue
+            for part in chunk.candidates[0].content.parts:
+                raw_parts.append(part)
+                if part.text:
+                    text_chunks.append(part.text)
+                    if on_text:
+                        on_text(part.text)
+                if part.function_call:
+                    fc = part.function_call
+                    tool_calls.append(
+                        ToolCall(
+                            id=f"call_{uuid.uuid4().hex[:8]}",
+                            name=fc.name,
+                            input=dict(fc.args),
+                        )
+                    )
+
+        text = "".join(text_chunks)
+        stop = "tool_use" if tool_calls else "end_turn"
+        raw_assistant = {"role": "model", "parts": raw_parts}
+        return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
+
+    async def complete(self, prompt: str, max_tokens: int) -> str:
+        types = self._types
+        try:
+            resp = await self._client.aio.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=max_tokens,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            return (resp.text or "").strip()
+        except Exception as e:
+            logger.warning("complete() failed: %s", e)
+            return ""
+
+
+def create_backend(
+    config: "AgentConfig",
+) -> AnthropicBackend | OpenAICompatibleBackend | GeminiBackend:
+    """Factory: pick backend based on PLATFORM env var / config."""
+    if config.platform == "gemini":
+        model = config.model or "gemini-2.5-flash"
+        logger.info("Using Gemini backend: %s", model)
+        return GeminiBackend(api_key=config.api_key, model=model)
+    if config.platform == "openai":
+        model = config.model or "gpt-4o-mini"
+        # If BASE_URL not explicitly set, use the real OpenAI endpoint
+        base_url = config.base_url
+        if not os.environ.get("BASE_URL"):
+            base_url = "https://api.openai.com/v1"
+        tools_mode = config.tools_mode if os.environ.get("TOOLS_MODE") else "native"
         logger.info(
-            "Using OpenAI-compatible backend: %s @ %s (tools=%s)",
+            "Using OpenAI backend: %s @ %s (tools=%s)",
             model,
-            config.llm_base_url,
-            config.llm_tools_mode,
+            base_url,
+            tools_mode,
         )
         return OpenAICompatibleBackend(
-            api_key=config.llm_api_key,
+            api_key=config.api_key,
             model=model,
-            base_url=config.llm_base_url,
-            tools_mode=config.llm_tools_mode,
+            base_url=base_url,
+            tools_mode=tools_mode,
         )
-    logger.info("Using Anthropic backend: %s", config.model)
-    return AnthropicBackend(api_key=config.anthropic_api_key, model=config.model)
+    model = config.model or "claude-haiku-4-5-20251001"
+    logger.info("Using Anthropic backend: %s", model)
+    return AnthropicBackend(api_key=config.api_key, model=model)
