@@ -13,10 +13,10 @@ load_dotenv()
 
 @dataclass
 class CameraConfig:
-    host: str = field(default_factory=lambda: os.environ.get("TAPO_CAMERA_HOST", os.environ.get("CAMERA_HOST", "")))
-    username: str = field(default_factory=lambda: os.environ.get("TAPO_USERNAME", os.environ.get("CAMERA_USERNAME", "admin")))
-    password: str = field(default_factory=lambda: os.environ.get("TAPO_PASSWORD", os.environ.get("CAMERA_PASSWORD", "")))
-    port: int = 2020
+    host: str = field(default_factory=lambda: os.environ.get("CAMERA_HOST", os.environ.get("TAPO_CAMERA_HOST", "")))
+    username: str = field(default_factory=lambda: os.environ.get("CAMERA_USERNAME", os.environ.get("TAPO_USERNAME", "admin")))
+    password: str = field(default_factory=lambda: os.environ.get("CAMERA_PASSWORD", os.environ.get("TAPO_PASSWORD", "")))
+    port: int = field(default_factory=lambda: int(os.environ.get("CAMERA_ONVIF_PORT", os.environ.get("TAPO_ONVIF_PORT", "2020"))))
 
 
 @dataclass
