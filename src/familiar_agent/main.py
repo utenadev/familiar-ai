@@ -30,10 +30,10 @@ IDLE_CHECK_INTERVAL = 10.0  # seconds between desire checks when idle
 
 # Tool action display
 ACTION_ICONS = {
-    "camera_capture": "👁  撮影中...",
-    "camera_look": "🔄 首を動かす...",
-    "move": "🦿 移動中...",
-    "say": "🗣  発話中...",
+    "camera_capture": "👀 観察中...",
+    "camera_look": "↩️  見回してる...",
+    "move": "🚶 移動中...",
+    "say": "💬 しゃべってる...",
 }
 
 
@@ -43,16 +43,16 @@ def _format_action(name: str, tool_input: dict) -> str:
     if name == "camera_look":
         direction = tool_input.get("direction", "?")
         degrees = tool_input.get("degrees", 30)
-        return f"🔄 {direction}に{degrees}度..."
+        return f"↩️  {direction}に{degrees}度..."
     elif name == "move":
         direction = tool_input.get("direction", "?")
         duration = tool_input.get("duration")
         if duration:
-            return f"🦿 {direction}に{duration}秒移動..."
-        return f"🦿 {direction}へ..."
+            return f"🚶 {direction}に{duration}秒..."
+        return f"🚶 {direction}へ..."
     elif name == "say":
         text = tool_input.get("text", "")[:40]
-        return f"🗣  「{text}...」"
+        return f"💬 「{text}...」"
     return base
 
 
