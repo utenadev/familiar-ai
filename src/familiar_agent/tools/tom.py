@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class ToMTool:
     """Theory of Mind: perspective-taking to understand what the other person feels and wants."""
 
-    def __init__(self, memory: "ObservationMemory", default_person: str = "コウタ") -> None:
+    def __init__(self, memory: "ObservationMemory", default_person: str = "Familiar AI") -> None:
         self._memory = memory
         self._default_person = default_person
 

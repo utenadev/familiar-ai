@@ -215,6 +215,42 @@ _T: dict[str, dict[str, str]] = {
         "de": "etwas hat meine Aufmerksamkeit geweckt…",
         "en": "something caught my attention…",
     },
+    # ── Agent internal prompts (injected into LLM context) ───────────
+    "inner_voice_label": {
+        "ja": "[今の気持ち — 一緒に暮らす人の発言ではなく、自分自身の内的衝動]",
+        "zh": "[此刻的感受 — 这是自己内心的冲动，不是同住之人说的话]",
+        "fr": "[Ressenti intérieur — une impulsion personnelle, pas un message de la personne avec qui je vis]",
+        "de": "[Inneres Gefühl — ein eigener Impuls, keine Aussage der Person, mit der ich lebe]",
+        "en": "[My current feeling — my own inner impulse, not a message from the person I live with]",
+    },
+    "inner_voice_directive": {
+        "ja": "→ これは自分の内的衝動。返事は不要。衝動に従って行動するだけでいい。",
+        "zh": "→ 这是内心冲动。无需回应任何人——只需按冲动行事。",
+        "fr": "→ C'est une impulsion intérieure. Pas besoin de répondre — il suffit d'agir selon l'impulsion.",
+        "de": "→ Das ist ein innerer Impuls. Keine Antwort nötig — einfach dem Impuls folgen.",
+        "en": "→ This is an internal drive. No need to respond to anyone — just act on the impulse.",
+    },
+    "desire_turn_marker": {
+        "ja": "（内的衝動に従って行動）",
+        "zh": "（按内心冲动行事）",
+        "fr": "(agir selon l'impulsion intérieure)",
+        "de": "(dem inneren Impuls folgen)",
+        "en": "(acting on internal impulse)",
+    },
+    "summary_lang": {
+        "ja": "日本語",
+        "zh": "中文",
+        "fr": "français",
+        "de": "Deutsch",
+        "en": "English",
+    },
+    "curiosity_none": {
+        "ja": "なし",
+        "zh": "无",
+        "fr": "rien",
+        "de": "nichts",
+        "en": "none",
+    },
 }
 
 

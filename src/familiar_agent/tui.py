@@ -88,6 +88,7 @@ class FamiliarApp(App):
         self.agent = agent
         self.desires = desires
         self._agent_name = agent.config.agent_name
+        self._companion_name = agent.config.companion_name
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._last_interaction = time.time()
         self._agent_running = False
@@ -141,7 +142,7 @@ class FamiliarApp(App):
         self._log(f"[dim]{text}[/dim]")
 
     def _log_user(self, text: str) -> None:
-        self._log(f"[bold cyan]コウタ ▶[/bold cyan] {text}")
+        self._log(f"[bold cyan]{self._companion_name} ▶[/bold cyan] {text}")
 
     def _log_action(self, name: str, tool_input: dict) -> None:
         label = _format_action(name, tool_input)

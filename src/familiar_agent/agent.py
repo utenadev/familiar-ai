@@ -15,6 +15,7 @@ from .tools.memory import MemoryTool, ObservationMemory
 from .tools.tom import ToMTool
 from .tools.mobility import MobilityTool
 from .tools.tts import TTSTool
+from ._i18n import _t
 
 logger = logging.getLogger(__name__)
 
@@ -86,21 +87,22 @@ Grounded perception — stay connected to reality:
 
 # Emotion inference prompt — short, cheap to run
 _EMOTION_PROMPT = """\
-次の文章を読んで、最もよく当てはまる感情ラベルを一つだけ選んで:
+Read this text and pick the single best emotion label:
 happy / sad / curious / excited / moved / neutral
 
-文章:
+Text:
 {text}
 
-ラベルだけ返して（英語で）。"""
+Reply with the label only (one English word)."""
 
 # Conversation save prompt — distill what happened into one sentence
 _SUMMARY_PROMPT = """\
-以下のやり取りを、感情の核心をとらえた一文で日本語で要約して。
-発話者: {user}
-うち（エージェント）: {agent}
+Summarize this exchange in one sentence that captures the emotional core. \
+Write in {lang}.
+Speaker: {user}
+Agent: {agent}
 
-一文だけ返して。日本語で。"""
+One sentence only."""
 
 # Self-model update prompt — extract a self-insight from an emotionally significant response
 _SELF_MODEL_PROMPT = """\
@@ -178,7 +180,7 @@ class EmbodiedAgent:
         self._tts: TTSTool | None = None
         self._memory = ObservationMemory()
         self._memory_tool = MemoryTool(self._memory)
-        self._tom_tool = ToMTool(self._memory)
+        self._tom_tool = ToMTool(self._memory, default_person=config.companion_name)
 
         self._init_tools()
 
@@ -266,12 +268,9 @@ class EmbodiedAgent:
         elif feelings_ctx:
             parts.append(feelings_ctx)
         # Inner voice: agent's own desire/impulse — NOT a user message.
-        # Injected here so the model understands this is self-generated, not from コウタ.
+        # Injected here so the model understands this is self-generated, not from the companion.
         if inner_voice:
-            parts.append(
-                f"[今のうちの気持ち — コウタさんの発言ではなくうち自身の衝動]\n{inner_voice}\n"
-                "→ これはうちの内的衝動。コウタさんへの返事（「そっか〜」「うちも〜」）は不要。衝動に従って行動するだけでいい。"
-            )
+            parts.append(f"{_t('inner_voice_label')}\n{inner_voice}\n{_t('inner_voice_directive')}")
 
         return "\n\n---\n\n".join(parts)
 
@@ -285,7 +284,11 @@ class EmbodiedAgent:
     async def _summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """Distill an exchange into one sentence for memory storage."""
         result = await self.backend.complete(
-            _SUMMARY_PROMPT.format(user=user_input[:200], agent=agent_response[:200]),
+            _SUMMARY_PROMPT.format(
+                lang=_t("summary_lang"),
+                user=user_input[:200],
+                agent=agent_response[:200],
+            ),
             max_tokens=80,
         )
         return result or agent_response[:100]
@@ -345,14 +348,17 @@ class EmbodiedAgent:
     async def extract_curiosity(self, exploration_result: str) -> str | None:
         """Ask the LLM what was most curious/interesting in the exploration."""
         try:
+            none_word = _t("curiosity_none")
             text = await self.backend.complete(
-                f"次の探索レポートを読んで、最も気になったことを一文で答えて。"
-                f"気になることがなければ「なし」とだけ答えて。説明不要。\n\n{exploration_result}",
+                f"Read this exploration report and answer in one sentence what you found most "
+                f"curious or interesting. Write in {_t('summary_lang')}. "
+                f'If nothing caught your attention, reply with just "{none_word}". '
+                f"No explanation.\n\n{exploration_result}",
                 max_tokens=80,
             )
             text = text.strip()
-            # Reject if the model returned "なし" or a long non-curious explanation
-            if not text or "なし" in text or len(text) > 100:
+            # Reject if the model returned the "none" word or a long non-curious explanation
+            if not text or none_word in text or len(text) > 100:
                 return None
             return text
         except Exception as e:
@@ -401,7 +407,7 @@ class EmbodiedAgent:
             # Desire turn: no user context needed; feelings injected via interoception
             feelings = []
             feelings_ctx = ""
-            user_input_with_ctx = "（内的衝動に従って行動）"
+            user_input_with_ctx = _t("desire_turn_marker")
 
         self.messages.append(self.backend.make_user_message(user_input_with_ctx))
 
