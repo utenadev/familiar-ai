@@ -420,9 +420,8 @@ class EmbodiedAgent:
                 on_text=on_text,
             )
 
-            self.messages.append(self.backend.make_assistant_message(result, raw_content))
-
             if result.stop_reason == "end_turn":
+                self.messages.append(self.backend.make_assistant_message(result, raw_content))
                 final_text = result.text or "(no response)"
 
                 # Auto-say: if the model wrote text but never called say(), speak it aloud.
@@ -476,10 +475,16 @@ class EmbodiedAgent:
                     logger.info("Tool call: %s(%s)", tc.name, tc.input)
                     if on_action:
                         on_action(tc.name, tc.input)
-                    text, image = await self._execute_tool(tc.name, tc.input)
+                    try:
+                        text, image = await self._execute_tool(tc.name, tc.input)
+                    except Exception as e:
+                        logger.warning("Tool %s failed: %s", tc.name, e)
+                        text, image = f"Tool error: {e}", None
                     logger.info("Tool result: %s", text[:100])
                     collected.append((text, image))
 
+                # Append assistant + tool results atomically: never leave tool_calls unresolved
+                self.messages.append(self.backend.make_assistant_message(result, raw_content))
                 tool_msgs = self.backend.make_tool_results(result.tool_calls, collected)
                 self.messages.append(tool_msgs)
 
