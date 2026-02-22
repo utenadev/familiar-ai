@@ -10,6 +10,10 @@
 
 ---
 
+[![デモ動画](https://img.youtube.com/vi/D5U8msRib10/0.jpg)](https://youtu.be/D5U8msRib10)
+
+---
+
 familiar-ai はあなたの家に暮らすAIコンパニオンです。
 数分でセットアップできます。コーディング不要。
 
