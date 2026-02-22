@@ -2,6 +2,10 @@
 
 **An AI that lives alongside you** — with eyes, voice, legs, and memory.
 
+[![Lint](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+
 [日本語版はこちら → README-ja.md](./README-ja.md)
 
 ---
