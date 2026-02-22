@@ -14,36 +14,32 @@ from ._i18n import BANNER, _t
 IDLE_CHECK_INTERVAL = 10.0  # seconds between desire checks when idle
 DESIRE_COOLDOWN = 90.0  # seconds after last user interaction before desires can fire
 
-ACTION_ICONS = {
-    "see": "👀 見てる...",
-    "look": "↩️  向いてる...",
-    "walk": "🚶 歩いてる...",
-    "say": "💬 しゃべってる...",
-}
-
 
 def _format_action(name: str, tool_input: dict) -> str:
     """Format a tool call for display."""
-    base = ACTION_ICONS.get(name, f"⚙  {name}...")
     if name == "look":
         direction = tool_input.get("direction", "")
-        label = {
-            "left": "左を向いた",
-            "right": "右を向いた",
-            "up": "上を向いた",
-            "down": "下を向いた",
-        }.get(direction, "見回してる")
-        return f"↩️  {label}..."
-    elif name == "walk":
+        key = {
+            "left": "look_left",
+            "right": "look_right",
+            "up": "look_up",
+            "down": "look_down",
+        }.get(direction, "look_around")
+        return f"↩️  {_t(key)}..."
+    if name == "walk":
         direction = tool_input.get("direction", "?")
         duration = tool_input.get("duration")
         if duration:
-            return f"🚶 {direction}に{duration}秒..."
-        return f"🚶 {direction}へ..."
-    elif name == "say":
+            return f"🚶 {_t('walk_timed', direction=direction, duration=str(duration))}"
+        return f"🚶 {_t('walk_dir', direction=direction)}"
+    if name == "say":
         text = tool_input.get("text", "")[:40]
         return f"💬 「{text}...」"
-    return base
+    action_key = f"action_{name}"
+    try:
+        return _t(action_key)
+    except KeyError:
+        return f"⚙  {name}..."
 
 
 async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False) -> None:
