@@ -47,15 +47,24 @@ class TTSTool:
             f.write(audio_data)
             tmp_path = f.name
 
-        proc = await asyncio.create_subprocess_exec(
-            "mpv",
-            "--no-terminal",
-            tmp_path,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await proc.wait()
-        return f"Said: {text[:50]}..."
+        # Try mpv first; fall back to ffplay if mpv fails
+        for player_args in (
+            ["mpv", "--no-terminal", "--ao=pulse", tmp_path],
+            ["mpv", "--no-terminal", tmp_path],
+            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", tmp_path],
+        ):
+            proc = await asyncio.create_subprocess_exec(
+                *player_args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                return f"Said: {text[:50]}..."
+            err = stderr.decode(errors="replace").strip()
+            logger.warning("%s failed (exit %d): %s", player_args[0], proc.returncode, err[:120])
+
+        return "TTS playback failed (mpv and ffplay both failed)"
 
     def get_tool_definitions(self) -> list[dict]:
         return [
