@@ -6,11 +6,51 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import tempfile
 import urllib.request
+from pathlib import Path
 from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
+
+_GO2RTC_CACHE = Path.home() / ".cache" / "embodied-claude" / "go2rtc"
+_GO2RTC_BIN = _GO2RTC_CACHE / "go2rtc"
+_GO2RTC_CONFIG = _GO2RTC_CACHE / "go2rtc.yaml"
+
+
+def _ensure_go2rtc(api_url: str) -> None:
+    """Start go2rtc if it's not already running."""
+    try:
+        urllib.request.urlopen(f"{api_url}/api", timeout=2)
+        return  # already running
+    except Exception:
+        pass
+
+    if not _GO2RTC_BIN.exists():
+        logger.warning("go2rtc binary not found at %s", _GO2RTC_BIN)
+        return
+    if not _GO2RTC_CONFIG.exists():
+        logger.warning("go2rtc config not found at %s", _GO2RTC_CONFIG)
+        return
+
+    logger.info("Starting go2rtc...")
+    subprocess.Popen(
+        [str(_GO2RTC_BIN), "-config", str(_GO2RTC_CONFIG)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    import time
+
+    for _ in range(10):
+        time.sleep(0.5)
+        try:
+            urllib.request.urlopen(f"{api_url}/api", timeout=1)
+            logger.info("go2rtc started")
+            return
+        except Exception:
+            continue
+    logger.warning("go2rtc did not start in time")
 
 
 class TTSTool:
@@ -27,6 +67,8 @@ class TTSTool:
         self.voice_id = voice_id
         self.go2rtc_url = go2rtc_url
         self.go2rtc_stream = go2rtc_stream
+        # Ensure go2rtc is running at startup
+        _ensure_go2rtc(self.go2rtc_url)
 
     async def say(self, text: str) -> str:
         """Speak text aloud via ElevenLabs → go2rtc camera speaker."""
