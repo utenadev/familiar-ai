@@ -8,7 +8,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from ._i18n import _t
+
 load_dotenv()
+
+
+def _default_companion_name() -> str:
+    return _t("default_companion_name")
 
 
 @dataclass
@@ -72,9 +78,9 @@ class AgentConfig:
     # Agent display name shown in TUI
     agent_name: str = field(default_factory=lambda: os.environ.get("AGENT_NAME", "AI"))
 
-    # Name of the companion/user shown in TUI and ToM tool (default: "Familiar AI")
+    # Name of the companion/user shown in TUI and ToM tool
     companion_name: str = field(
-        default_factory=lambda: os.environ.get("COMPANION_NAME", "Familiar AI")
+        default_factory=lambda: os.environ.get("COMPANION_NAME", _default_companion_name())
     )
 
     # Platform: "anthropic" | "gemini" | "openai" | "kimi"

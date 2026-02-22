@@ -251,6 +251,14 @@ _T: dict[str, dict[str, str]] = {
         "de": "nichts",
         "en": "none",
     },
+    # Default companion name when COMPANION_NAME is not set
+    "default_companion_name": {
+        "ja": "ユウト",
+        "zh": "小明",
+        "fr": "Lucas",
+        "de": "Lukas",
+        "en": "Alex",
+    },
 }
 
 
