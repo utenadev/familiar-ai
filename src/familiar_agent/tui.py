@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import locale
 import logging
+import os
 import re
 import time
 from datetime import datetime
@@ -29,8 +30,18 @@ _RICH_TAG_RE = re.compile(r"\[/?[^\[\]]*\]")
 
 
 def _detect_lang() -> str:
-    """Return a language code based on the system locale: 'ja', 'zh', or 'en'."""
-    lang = locale.getlocale()[0] or ""
+    """Return a language code based on the system locale: 'ja', 'zh', 'fr', 'de', or 'en'."""
+    # Prefer env vars (LANG, LANGUAGE, LC_ALL, LC_MESSAGES) over locale.getlocale()
+    # because getlocale() doesn't always reflect the current environment.
+    raw = (
+        os.environ.get("LANGUAGE")
+        or os.environ.get("LC_ALL")
+        or os.environ.get("LC_MESSAGES")
+        or os.environ.get("LANG")
+        or locale.getlocale()[0]
+        or ""
+    )
+    lang = raw.split(":")[0]  # LANGUAGE can be colon-separated list
     if lang.startswith("ja"):
         return "ja"
     if lang.startswith("zh"):

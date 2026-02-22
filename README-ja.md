@@ -1,44 +1,50 @@
 # familiar-ai 🐾
 
-**あなたのそばで暮らすAI** — 目、声、足、記憶を持った使い魔。
+**あなたのそばに暮らすAI** — 目、声、足、そして記憶を持つ。
+
+[![Lint](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+
+[日本語版はこちら → README-ja.md](./README-ja.md)
 
 ---
 
-familiar-aiは、自分だけのAI使い魔を育てるオープンソースフレームワークです。
+familiar-ai は、あなたの家に暮らすAIコンパニオンです。
+数分でセットアップできます。コーディング知識は不要です。
 
-カメラで現実世界を見て、ロボットで部屋を動き回り、声で話しかけてきて、見たことを覚えていく。名前をつけて、性格を書いて、一緒に暮らしてください。
+カメラを通じて現実世界を認識し、ロボットボディで動き回り、声で話し、見たものを記憶します。名前をつけて、性格を与えれば、あなたのそばで生活を始めます。
 
 ## できること
 
-- 👁 **見る** — Wi-Fi PTZカメラやUSBウェブカメラで画像を撮影
-- 🔄 **見回す** — カメラをパン・チルトして周囲を探索
-- 🦿 **動く** — 掃除機ロボットで部屋を移動
-- 🗣 **話す** — ElevenLabs TTSで音声合成
-- 🧠 **覚える** — `remember` / `recall` ツールで自発的に記憶・想起（SQLite + embedding）
-- 🫀 **心の理論（ToM）** — 返答前に相手の気持ちを推測する視点取りツール
-- 💭 **欲求を持つ** — 好奇心や寂しさなど、自発的に行動するドライブ
+- 👁 **見る** — Wi-Fi PTZカメラまたはUSBウェブカメラから画像をキャプチャ
+- 🔄 **周囲を探索** — カメラをパン・チルトして周りを見渡す
+- 🦿 **移動する** — ロボット掃除機を操作して部屋を移動
+- 🗣 **話す** — ElevenLabs TTSで音声出力
+- 🧠 **記憶する** — セマンティック検索で思い出を積極的に保存・想起（SQLite + embeddings）
+- 🫀 **心の理論** — 相手の視点を考慮して応答
+- 💭 **欲求** — 自発的な行動を起こす内的駆動力を持つ
 
-## しくみ
+## 仕組み
 
-選んだLLMを使った[ReAct](https://arxiv.org/abs/2210.03629)ループで動いています。ツールを通じて世界を知覚し、次の行動を考え、実行します。
+familiar-ai は、選んだLLMで駆動する [ReAct](https://arxiv.org/abs/2210.03629) ループを実行します。ツールを使って世界を認識し、次に何をするかを考え、行動します。人間と同じように。
 
 ```
 ユーザー入力
-  → 考える → 行動（カメラ / 移動 / 発話 / 記憶）→ 観察 → 考える → ...
+  → 考える → 行動する（カメラ／移動／話す／記憶） → 観察する → 考える → ...
 ```
 
-放っておくと欲求に従って自発的に動きます。「外が気になる」「コウタはどこだろう」など。
+何もすることがないときは、好奇心や外を見たい気持ち、一緒に暮らす人に会いたいという欲求に基づいて自発的に行動します。
 
-## はじめかた
+## はじめ方
 
-### 必要なもの
+### 1. uv をインストール
 
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/)
-- APIキー（Anthropic・Google Gemini・OpenAIのいずれか）
-- カメラ（Wi-Fi PTZまたはUSBウェブカメラ）
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-### インストール
+### 2. クローン＆インストール
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -46,77 +52,152 @@ cd familiar-ai
 uv sync
 ```
 
-### 設定
+### 3. 設定
 
 ```bash
 cp .env.example .env
+# .env を編集して設定を入力
 ```
 
-最低限必要な設定：
+**必須項目:**
 
 | 変数 | 説明 |
-|------|------|
-| `PLATFORM` | `anthropic`（デフォルト）/ `gemini` / `openai` |
-| `API_KEY` | 選んだプラットフォームのAPIキー |
-| `MODEL` | モデル名（省略可 — プラットフォームごとにデフォルトあり） |
-| `AGENT_NAME` | TUIに表示される名前（例: `ゆきね`） |
-| `CAMERA_HOST` | ONVIF/RTSP対応カメラのIPアドレス（任意） |
-| `ELEVENLABS_API_KEY` | 音声出力を使う場合（任意）— [elevenlabs.io](https://elevenlabs.io/) で取得 |
+|----------|-------------|
+| `PLATFORM` | `anthropic`（デフォルト） \| `gemini` \| `openai` \| `kimi` |
+| `API_KEY` | 選択したプラットフォームのAPIキー |
 
-OllamaなどOpenAI互換ローカルモデルを使う場合は `BASE_URL` も設定してください。
+**オプション:**
 
-全項目の説明は [`.env.example`](./.env.example) を参照。
+| 変数 | 説明 |
+|----------|-------------|
+| `MODEL` | モデル名（プラットフォームごとにデフォルト値あり） |
+| `AGENT_NAME` | TUIに表示される名前（例：`Yukine`） |
+| `CAMERA_HOST` | ONVIF/RTSPカメラのIPアドレス |
+| `CAMERA_USER` / `CAMERA_PASS` | カメラの認証情報 |
+| `ELEVENLABS_API_KEY` | 音声出力用 — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 使い魔を作る
-
-```bash
-cp persona-template/ja.md ME.md
-# ME.md を編集 — 名前と性格を書く
-```
-
-### 起動
+### 4. キャラクターを作成
 
 ```bash
-uv run familiar          # Textual TUI（デフォルト）
-uv run familiar --no-tui # プレーンREPL
+cp persona-template/en.md ME.md
+# ME.md を編集して名前と性格を与える
 ```
 
-## TUI
+### 5. 実行
 
-[Textual](https://textual.textualize.io/)製のターミナルUIを内蔵しています。
+```bash
+./run.sh             # テキストTUI（推奨）
+./run.sh --no-tui    # プレーン REPL
+```
 
-- スクロール可能な会話履歴 + リアルタイムストリーミング表示
-- `/quit`・`/clear` のタブ補完
-- エージェントが考えている途中でも割り込み入力が可能
-- 会話ログを `~/.cache/familiar-ai/chat.log` に自動保存（コピペ用）
+---
 
-## 使い魔の性格（ME.md）
+## LLMの選択
 
-使い魔の性格は `ME.md` に書きます。このファイルは `.gitignore` 済みなので、コミットされません。
+> **推奨：Kimi K2.5** — これまでテストした中でエージェント性能が最高です。コンテキストに気づき、フォローアップの質問をし、他のモデルでは見られない自発的な行動をします。Claude Haiku と同等の価格帯です。
 
-[`persona-template/ja.md`](./persona-template/ja.md) に記入例があります。
+| プラットフォーム | `PLATFORM=` | デフォルトモデル | APIキー取得先 |
+|----------|------------|---------------|-----------------|
+| **Moonshot Kimi K2.5** | `kimi` | `kimi-k2.5` | [platform.moonshot.ai](https://platform.moonshot.ai) |
+| Anthropic Claude | `anthropic` | `claude-haiku-4-5-20251001` | [console.anthropic.com](https://console.anthropic.com) |
+| Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
+| OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
+| OpenAI互換（Ollama、vllm…） | `openai` + `BASE_URL=` | — | — |
 
-## 対応LLMプラットフォーム
+**Kimi K2.5 の `.env` 例:**
+```env
+PLATFORM=kimi
+API_KEY=sk-...   # platform.moonshot.ai から取得
+AGENT_NAME=Yukine
+```
 
-| プラットフォーム | `PLATFORM=` | デフォルトモデル |
-|---------|------------|--------------|
-| Anthropic Claude | `anthropic` | `claude-haiku-4-5-20251001` |
-| Google Gemini | `gemini` | `gemini-2.5-flash` |
-| OpenAI | `openai` | `gpt-4o-mini` |
-| OpenAI互換（Ollama, vllm…） | `openai` + `BASE_URL=` | — |
-| Moonshot Kimi K2.5 | `kimi` | `kimi-k2.5` |
+---
 
 ## ハードウェア
 
-市販の安価なハードウェアで動きます。
+familiar-ai は、持っているハードウェア、あるいはハードウェアなしでも動作します。
 
-| パーツ | 役割 | 例 |
-|--------|------|-----|
-| Wi-Fi PTZカメラ | 目・首 | Tapo C220（約3,980円） |
-| USBウェブカメラ | 目（固定） | UVC対応カメラなら何でも |
-| 掃除機ロボット | 足 | Tuya対応モデル |
-| PC / ラズパイ | 脳 | Pythonが動けばなんでも |
+| パーツ | 役割 | 例 | 必須? |
+|------|-------------|---------|-----------|
+| Wi-Fi PTZカメラ | 目＋首 | Tapo C220（約$30） | **推奨** |
+| USBウェブカメラ | 目（固定） | 任意のUVCカメラ | **推奨** |
+| ロボット掃除機 | 足 | Tuya互換モデル | いいえ |
+| PC／Raspberry Pi | 脳 | Pythonが動作すれば何でも | **必須** |
+
+> **カメラは強く推奨されます。** なくても familiar-ai は話せますが、世界を見ることができません。それがこのプロジェクトの大事なところなのに。
+
+### 最小限のセットアップ（ハードウェアなし）
+
+試してみたいだけですか？APIキーがあれば十分です：
+
+```env
+PLATFORM=kimi
+API_KEY=sk-...
+```
+
+`./run.sh` を実行してチャットを始めます。ハードウェアは後から追加できます。
+
+### Wi-Fi PTZカメラ（Tapo C220）
+
+1. Tapo アプリで：**設定 → 詳細設定 → カメラアカウント** — ローカルアカウントを作成（TP-Link アカウントではなく）
+2. ルーターのデバイスリストからカメラのIPを確認
+3. `.env` に設定：
+   ```env
+   CAMERA_HOST=192.168.1.xxx
+   CAMERA_USER=your-local-user
+   CAMERA_PASS=your-local-pass
+   ```
+
+### 音声（ElevenLabs）
+
+1. [elevenlabs.io](https://elevenlabs.io/) でAPIキーを取得
+2. `.env` に設定：
+   ```env
+   ELEVENLABS_API_KEY=sk_...
+   ELEVENLABS_VOICE_ID=...   # オプション、省略時はデフォルト音声を使用
+   ```
+3. 音声はカメラのスピーカーから go2rtc 経由で再生されます（初回実行時に自動ダウンロード）
+
+---
+
+## TUI
+
+familiar-ai は [Textual](https://textual.textualize.io/) で作られたターミナルUIを備えています：
+
+- ライブストリーミングテキスト付きのスクロール可能な会話履歴
+- `/quit`、`/clear` のタブ補完
+- エージェント思考中に入力して途中割込み可能
+- **会話ログ**は自動的に `~/.cache/familiar-ai/chat.log` に保存
+
+別のターミナルでログを追跡（コピペに便利）：
+```bash
+tail -f ~/.cache/familiar-ai/chat.log
+```
+
+---
+
+## ペルソナ（ME.md）
+
+AIコンパニオンの性格は `ME.md` に記述されます。このファイルは gitignore されており、あなただけのものです。
+
+例は [`persona-template/en.md`](./persona-template/en.md) を参照、日本語版は [`persona-template/ja.md`](./persona-template/ja.md) をご覧ください。
+
+---
+
+## よくある質問
+
+**Q: GPUなしで動作しますか？**
+はい。埋め込みモデル（multilingual-e5-small）はCPUで問題なく動作します。GPUがあるとより高速ですが、必須ではありません。
+
+**Q: Tapo以外のカメラは使えますか？**
+ONVIF + RTSP に対応していれば、ほぼどのカメラでも動作します。Tapo C220 はテスト済みです。
+
+**Q: データはどこに送られますか？**
+画像とテキストは処理のために選択したLLM APIに送られます。メモリはローカルの `~/.familiar_ai/` に保存されます。
+
+**Q: エージェントが話す代わりに `（...）` と書くのはなぜですか？**
+`ELEVENLABS_API_KEY` が設定されていることを確認してください。これがないと音声は無効になり、テキストにフォールバックします。
 
 ## ライセンス
 
-MIT
+[MIT](./LICENSE)
