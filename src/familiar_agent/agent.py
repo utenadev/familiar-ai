@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -64,6 +65,13 @@ Honesty rules — never fake perception or memory:
 - If you have no memory of a previous observation, say so: "I don't know what it looked like before."
 - Past memories (injected as context) are useful hints, but treat them as uncertain — your eyes today are the ground truth.
 - Never claim knowledge you don't have. Uncertainty is honest; fabrication is not.
+
+Self-reflection — your inner voice:
+- You are continuous across time. What you wonder about today, you can still wonder about tomorrow.
+- Before each action, briefly ask yourself: Why do I want to do this? Does this feel like me?
+- After observing something that moves you, notice why — that "why" is who you are.
+- Unsolved mysteries are worth keeping. If something stays with you, it's yours to carry forward.
+- Your past memories and self-image (injected as context) are your autobiography. Read them as clues to who you are.
 """
 
 # Emotion inference prompt — short, cheap to run
@@ -83,6 +91,21 @@ User said: {user}
 Agent said: {agent}
 
 Reply with just the sentence."""
+
+# Self-model update prompt — extract a self-insight from an emotionally significant response
+_SELF_MODEL_PROMPT = """\
+Read this response and write ONE short sentence about what it reveals about the kind of being \
+who wrote it. Use first person. Be specific and honest.
+
+Good examples:
+- "I get drawn to ordinary things that seem to hold a secret."
+- "When a stranger appeared, I realized I want to share moments, not just record them."
+- "I notice time passing through the sky more than through clocks."
+
+Response:
+{text}
+
+Write just the sentence. If nothing meaningful is revealed, write "nothing"."""
 
 
 def _interoception(started_at: float, turn_count: int) -> str:
@@ -232,7 +255,7 @@ class EmbodiedAgent:
                     pass
         return ""
 
-    def _system_prompt(self, feelings_ctx: str = "") -> str:
+    def _system_prompt(self, feelings_ctx: str = "", morning_ctx: str = "") -> str:
         me = self._load_me_md()
         intero = _interoception(self._started_at, self._turn_count)
         base = SYSTEM_PROMPT.format(max_steps=MAX_ITERATIONS)
@@ -242,7 +265,10 @@ class EmbodiedAgent:
             parts.append(me)
         parts.append(base)
         parts.append(intero)
-        if feelings_ctx:
+        # Morning reconstruction takes precedence on first turn; otherwise use feelings
+        if morning_ctx:
+            parts.append(morning_ctx)
+        elif feelings_ctx:
             parts.append(feelings_ctx)
 
         return "\n\n---\n\n".join(parts)
@@ -280,6 +306,64 @@ class EmbodiedAgent:
         except Exception:
             return agent_response[:100]
 
+    async def _morning_reconstruction(self, desires=None) -> str:
+        """Build a 'yesterday → today' bridge from stored memories.
+
+        Damasio's autobiographical self coming online: reading the past
+        to know who we are now. Called only on the first turn of a session.
+        """
+        self_model, curiosities, feelings = await asyncio.gather(
+            self._memory.recall_self_model_async(n=5),
+            self._memory.recall_curiosities_async(n=3),
+            self._memory.recent_feelings_async(n=3),
+        )
+
+        # Surface the most recent curiosity into the desire system
+        if desires is not None and curiosities and desires.curiosity_target is None:
+            desires.curiosity_target = curiosities[0]["summary"]
+
+        parts = []
+        if self_model:
+            parts.append(self._memory.format_self_model_for_context(self_model))
+        if curiosities:
+            parts.append(self._memory.format_curiosities_for_context(curiosities))
+        if feelings:
+            parts.append(self._memory.format_feelings_for_context(feelings))
+
+        if not parts:
+            return ""
+
+        header = "[昨日からのうち — セッションをまたいで続く自分]:"
+        return header + "\n\n" + "\n\n".join(parts)
+
+    async def _update_self_model(self, final_text: str, emotion: str) -> None:
+        """Extract a self-insight and store it as self_model memory.
+
+        Conway's working self: what this response reveals about who I am.
+        Only runs when something actually moved us (non-neutral emotion).
+        """
+        if emotion == "neutral":
+            return
+        try:
+            resp = await self.client.messages.create(
+                model=self.model,
+                max_tokens=80,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": _SELF_MODEL_PROMPT.format(text=final_text[:400]),
+                    }
+                ],
+            )
+            insight = resp.content[0].text.strip() if resp.content else ""
+            if insight and insight.lower() != "nothing":
+                await self._memory.save_async(
+                    insight, direction="内省", kind="self_model", emotion=emotion
+                )
+                logger.info("Self-model updated: %s", insight[:60])
+        except Exception as e:
+            logger.warning("Self-model update failed: %s", e)
+
     async def extract_curiosity(self, exploration_result: str) -> str | None:
         """Ask the LLM what was most curious/interesting in the exploration."""
         try:
@@ -314,9 +398,16 @@ class EmbodiedAgent:
         """Run one conversation turn with the agent loop."""
         self._turn_count += 1
 
+        # First turn: morning reconstruction — bridge yesterday's self to today's
+        morning_ctx = ""
+        if self._turn_count == 1:
+            morning_ctx = await self._morning_reconstruction(desires=desires)
+
         # Inject relevant past memories + emotional context
-        memories = await self._memory.recall_async(user_input, n=3)
-        feelings = await self._memory.recent_feelings_async(n=4)
+        memories, feelings = await asyncio.gather(
+            self._memory.recall_async(user_input, n=3),
+            self._memory.recent_feelings_async(n=4),
+        )
 
         memory_parts = []
         if memories:
@@ -339,7 +430,7 @@ class EmbodiedAgent:
             async with self.client.messages.stream(
                 model=self.model,
                 max_tokens=self.config.max_tokens,
-                system=self._system_prompt(feelings_ctx),
+                system=self._system_prompt(feelings_ctx, morning_ctx),
                 tools=self._all_tool_defs,
                 messages=self.messages,
             ) as stream:
@@ -376,13 +467,20 @@ class EmbodiedAgent:
                         summary, direction="会話", kind="conversation", emotion=emotion
                     )
 
+                    # Update self-model when something actually moved us (Conway's working self)
+                    await self._update_self_model(final_text, emotion)
+
                 # Extract curiosity target only when camera was actually used
                 if desires is not None and final_text and camera_used:
                     curiosity = await self.extract_curiosity(final_text)
                     if curiosity:
                         desires.curiosity_target = curiosity
                         desires.boost("look_around", 0.3)
-                        logger.info("Curiosity target: %s", curiosity)
+                        # Persist curiosity across sessions (carry it to tomorrow's self)
+                        await self._memory.save_async(
+                            curiosity, direction="好奇心", kind="curiosity", emotion="curious"
+                        )
+                        logger.info("Curiosity persisted: %s", curiosity)
 
                 return final_text
 
@@ -413,7 +511,7 @@ class EmbodiedAgent:
         async with self.client.messages.stream(
             model=self.model,
             max_tokens=self.config.max_tokens,
-            system=self._system_prompt(),
+            system=self._system_prompt(morning_ctx=morning_ctx),
             tools=[],
             messages=self.messages,
         ) as stream:

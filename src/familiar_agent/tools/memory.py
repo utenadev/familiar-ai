@@ -319,6 +319,67 @@ class ObservationMemory:
             lines.append(f"- {f['date']} {f['time']} {emotion_str}{f['summary'][:120]}")
         return "\n".join(lines)
 
+    def recall_self_model(self, n: int = 5) -> list[dict]:
+        """Return the most recent self-model insights (who I am, accumulated from experience)."""
+        try:
+            db = self._ensure_connected()
+            rows = db.execute(
+                "SELECT content, date, time, emotion FROM observations "
+                "WHERE kind = 'self_model' "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+            return [
+                {
+                    "summary": r["content"],
+                    "date": r["date"],
+                    "time": r["time"],
+                    "emotion": r["emotion"],
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.warning("Failed to fetch self model: %s", e)
+            return []
+
+    def recall_curiosities(self, n: int = 5) -> list[dict]:
+        """Return unresolved curiosity threads carried over from previous sessions."""
+        try:
+            db = self._ensure_connected()
+            rows = db.execute(
+                "SELECT content, date, time FROM observations "
+                "WHERE kind = 'curiosity' "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+            return [
+                {
+                    "summary": r["content"],
+                    "date": r["date"],
+                    "time": r["time"],
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.warning("Failed to fetch curiosities: %s", e)
+            return []
+
+    def format_self_model_for_context(self, self_model: list[dict]) -> str:
+        if not self_model:
+            return ""
+        lines = ["[うちという存在 — 経験から積み上げてきた自己像]:"]
+        for m in self_model:
+            lines.append(f"- {m['summary'][:120]}")
+        return "\n".join(lines)
+
+    def format_curiosities_for_context(self, curiosities: list[dict]) -> str:
+        if not curiosities:
+            return ""
+        lines = ["[まだ謎のまま・続きが気になること]:"]
+        for c in curiosities:
+            lines.append(f"- {c['date']} {c['time']}: {c['summary'][:120]}")
+        return "\n".join(lines)
+
     async def save_async(
         self,
         content: str,
@@ -333,3 +394,9 @@ class ObservationMemory:
 
     async def recent_feelings_async(self, n: int = 5) -> list[dict]:
         return await asyncio.to_thread(self.recent_feelings, n)
+
+    async def recall_self_model_async(self, n: int = 5) -> list[dict]:
+        return await asyncio.to_thread(self.recall_self_model, n)
+
+    async def recall_curiosities_async(self, n: int = 5) -> list[dict]:
+        return await asyncio.to_thread(self.recall_curiosities, n)
