@@ -10,7 +10,7 @@
 
 ---
 
-[![示範影片](https://img.youtube.com/vi/7jJzxQFHvGE/0.jpg)](https://youtube.com/shorts/7jJzxQFHvGE)
+[![示範影片](https://img.youtube.com/vi/GUFpd4E7Zeo/0.jpg)](https://youtube.com/shorts/GUFpd4E7Zeo)
 
 Familiar AI 是一個住在你家裡的 AI 夥伴。
 幾分鐘內就能建置完成。無需編寫任何程式碼。
