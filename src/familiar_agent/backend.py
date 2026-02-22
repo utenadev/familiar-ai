@@ -363,8 +363,6 @@ class OpenAICompatibleBackend:
             "max_tokens": max_tokens,
             "messages": flat,
             "stream": True,
-            # Disable Gemini thinking tokens so they don't leak into output
-            "extra_body": {"generationConfig": {"thinkingConfig": {"thinkingBudget": 0}}},
         }
         if oai_tools:
             kwargs["tools"] = oai_tools
@@ -374,6 +372,10 @@ class OpenAICompatibleBackend:
         text_chunks: list[str] = []
         raw_tcs: dict[int, dict] = {}
         finish_reason: str | None = None
+        # Filter Gemini thinking tokens: buffer until thinking block ends.
+        # Thinking content starts with "THOUGHT\n" and ends before the actual response.
+        _thinking_buf: str = ""
+        _in_thinking: bool | None = None  # None = undecided, True = in thinking, False = done
 
         async for chunk in stream:
             choice = chunk.choices[0]
@@ -381,9 +383,37 @@ class OpenAICompatibleBackend:
             finish_reason = choice.finish_reason or finish_reason
 
             if delta.content:
-                text_chunks.append(delta.content)
-                if on_text:
-                    on_text(delta.content)
+                chunk_text = delta.content
+
+                if _in_thinking is None:
+                    # First content chunk — decide if we're in a thinking block
+                    _thinking_buf += chunk_text
+                    if _thinking_buf.startswith("THOUGHT"):
+                        _in_thinking = True
+                    elif len(_thinking_buf) >= 7:
+                        # Enough chars to decide — not a thinking block
+                        _in_thinking = False
+                        text_chunks.append(_thinking_buf)
+                        if on_text:
+                            on_text(_thinking_buf)
+                        _thinking_buf = ""
+                elif _in_thinking:
+                    # Still inside thinking block — look for the end
+                    _thinking_buf += chunk_text
+                    # Thinking ends when we see a blank line after THOUGHT content
+                    end_idx = _thinking_buf.find("\n\n")
+                    if end_idx != -1:
+                        _in_thinking = False
+                        real_text = _thinking_buf[end_idx + 2 :]
+                        _thinking_buf = ""
+                        if real_text:
+                            text_chunks.append(real_text)
+                            if on_text:
+                                on_text(real_text)
+                else:
+                    text_chunks.append(chunk_text)
+                    if on_text:
+                        on_text(chunk_text)
 
             if delta.tool_calls:
                 for tc_delta in delta.tool_calls:
