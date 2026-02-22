@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import locale
 import logging
 import re
 import time
@@ -25,6 +26,77 @@ IDLE_CHECK_INTERVAL = 10.0
 DESIRE_COOLDOWN = 90.0
 
 _RICH_TAG_RE = re.compile(r"\[/?[^\[\]]*\]")
+
+
+def _detect_lang() -> str:
+    """Return a language code based on the system locale: 'ja', 'zh', or 'en'."""
+    lang = locale.getlocale()[0] or ""
+    if lang.startswith("ja"):
+        return "ja"
+    if lang.startswith("zh"):
+        return "zh"
+    return "en"
+
+
+_LANG = _detect_lang()
+
+_T: dict[str, dict[str, str]] = {
+    "startup": {
+        "ja": "familiar-ai 起動。/quit で終了、Ctrl+L で履歴クリア。ログ: {log_path}",
+        "zh": "familiar-ai 已启动。输入 /quit 退出，Ctrl+L 清除历史。日志: {log_path}",
+        "en": "familiar-ai started. /quit to exit, Ctrl+L to clear history. Log: {log_path}",
+    },
+    "history_cleared": {
+        "ja": "── 履歴クリア ──",
+        "zh": "── 历史已清除 ──",
+        "en": "── history cleared ──",
+    },
+    "input_placeholder": {
+        "ja": "メッセージ > ",
+        "zh": "消息 > ",
+        "en": "message > ",
+    },
+    "quit_label": {
+        "ja": "終了",
+        "zh": "退出",
+        "en": "Quit",
+    },
+    "clear_label": {
+        "ja": "履歴クリア",
+        "zh": "清除历史",
+        "en": "Clear history",
+    },
+    "desire_look_around": {
+        "ja": "なんか外が気になってきた…",
+        "zh": "突然想看看外面…",
+        "en": "feeling curious about outside…",
+    },
+    "desire_explore": {
+        "ja": "ちょっと動きたくなってきたな…",
+        "zh": "想动动了…",
+        "en": "feeling like moving around…",
+    },
+    "desire_greet_companion": {
+        "ja": "誰かいるかな…",
+        "zh": "有人在吗…",
+        "en": "wondering if someone's around…",
+    },
+    "desire_rest": {
+        "ja": "少し休憩しよかな…",
+        "zh": "想休息一下…",
+        "en": "feeling like resting a bit…",
+    },
+    "desire_default": {
+        "ja": "ちょっと気になることがあって…",
+        "zh": "有点在意的事…",
+        "en": "something caught my attention…",
+    },
+}
+
+
+def _t(key: str, **kwargs: str) -> str:
+    return _T[key].get(_LANG, _T[key]["en"]).format(**kwargs)
+
 
 CSS = """
 #log {
@@ -77,8 +149,8 @@ def _format_action(name: str, tool_input: dict) -> str:
 class FamiliarApp(App):
     CSS = CSS
     BINDINGS = [
-        Binding("ctrl+c", "quit", "終了", show=True),
-        Binding("ctrl+l", "clear_history", "履歴クリア", show=True),
+        Binding("ctrl+c", "quit", _t("quit_label"), show=True),
+        Binding("ctrl+l", "clear_history", _t("clear_label"), show=True),
     ]
 
     def __init__(self, agent: "EmbodiedAgent", desires: "DesireSystem") -> None:
@@ -109,7 +181,7 @@ class FamiliarApp(App):
         yield RichLog(id="log", highlight=False, markup=True, wrap=True)
         yield Static("", id="stream")
         yield Input(
-            placeholder="コウタ > ",
+            placeholder=_t("input_placeholder"),
             id="input-bar",
             suggester=SuggestFromList(["/quit", "/clear"], case_sensitive=False),
         )
@@ -117,9 +189,7 @@ class FamiliarApp(App):
 
     def on_mount(self) -> None:
         self.query_one("#input-bar", Input).focus()
-        self._log_system(
-            f"familiar-ai 起動。/quit で終了、Ctrl+L で履歴クリア。ログ: {self._log_path}"
-        )
+        self._log_system(_t("startup", log_path=str(self._log_path)))
         self.set_interval(IDLE_CHECK_INTERVAL, self._desire_tick)
         self.run_worker(self._process_queue(), exclusive=False)
 
@@ -156,7 +226,7 @@ class FamiliarApp(App):
             return
         if text == "/clear":
             self.agent.clear_history()
-            self._log_system("── 履歴クリア ──")
+            self._log_system(_t("history_cleared"))
             return
 
         self._log_user(text)
@@ -231,11 +301,11 @@ class FamiliarApp(App):
 
         desire_name, _ = self.desires.get_dominant()
         murmur = {
-            "look_around": "なんか外が気になってきた…",
-            "explore": "ちょっと動きたくなってきたな…",
-            "greet_companion": "誰かいるかな…",
-            "rest": "少し休憩しよかな…",
-        }.get(desire_name, "ちょっと気になることがあって…")
+            "look_around": _t("desire_look_around"),
+            "explore": _t("desire_explore"),
+            "greet_companion": _t("desire_greet_companion"),
+            "rest": _t("desire_rest"),
+        }.get(desire_name, _t("desire_default"))
 
         self._log_system(murmur)
 
@@ -256,7 +326,7 @@ class FamiliarApp(App):
 
     def action_clear_history(self) -> None:
         self.agent.clear_history()
-        self._log_system("── 履歴クリア ──")
+        self._log_system(_t("history_cleared"))
 
     def action_quit(self) -> None:
         self.exit()
