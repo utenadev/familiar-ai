@@ -534,7 +534,18 @@ class KimiBackend:
         max_tokens: int,
         on_text: Callable[[str], None] | None = None,
     ) -> tuple[TurnResult, Any]:
-        flat_messages = [{"role": "system", "content": system}] + messages
+        # Flatten nested lists (tool results are appended as lists by agent.py)
+        flat_messages: list[dict] = [{"role": "system", "content": system}]
+        for msg in messages:
+            if isinstance(msg, list):
+                flat_messages.extend(msg)
+            else:
+                flat_messages.append(msg)
+
+        logger.debug(
+            "KimiBackend request messages: %s",
+            json.dumps(flat_messages, ensure_ascii=False, default=str),
+        )
 
         oai_tools = [
             {
