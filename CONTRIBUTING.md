@@ -8,6 +8,9 @@ Thank you for your interest! Here's how to get started.
 git clone https://github.com/kmizu/familiar-ai
 cd familiar-ai
 uv sync
+
+# Set up pre-commit hooks (runs ruff automatically before every commit)
+uvx pre-commit install
 ```
 
 ## Before submitting a PR
