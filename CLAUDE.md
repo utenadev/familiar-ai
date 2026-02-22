@@ -26,6 +26,16 @@ src/familiar_agent/
 - **Embeddings use CPU-only torch** by default. Do not switch to GPU builds without good reason — most users won't have a GPU.
 - **ME.md is gitignored.** It contains the user's personal persona. Never commit it.
 
+## Git workflow
+
+**Always cut a feature branch before starting work.** Never commit directly to `main`.
+
+```bash
+git checkout -b feat/your-feature-name
+# ... make changes and commits ...
+# then open a PR to main
+```
+
 ## Commit messages
 
 **Always in English.** Follow Conventional Commits:
