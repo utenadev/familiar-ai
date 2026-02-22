@@ -10,6 +10,8 @@
 
 ---
 
+[![演示视频](https://img.youtube.com/vi/7jJzxQFHvGE/0.jpg)](https://youtube.com/shorts/7jJzxQFHvGE)
+
 Familiar AI 是一个住在你家里的 AI 伙伴。
 几分钟内就能搭建完成。无需编写任何代码。
 
