@@ -182,7 +182,7 @@ class CameraTool:
         if tool_name == "camera_capture":
             b64, save_path = await self.capture()
             if b64:
-                msg = f"Image captured."
+                msg = "Image captured."
                 if save_path:
                     msg += f" Saved to {save_path}"
                 return msg, b64

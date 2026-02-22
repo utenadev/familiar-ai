@@ -152,7 +152,6 @@ class ObservationMemory:
                     "FROM observations o JOIN obs_embeddings e ON o.id = e.obs_id"
                 ).fetchall()
 
-                ids = [r["id"] for r in rows]
                 vecs = np.stack([_decode_vector(bytes(r["vector"])) for r in rows])
                 scores = _cosine_similarity(query_vec, vecs)
 

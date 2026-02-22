@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -222,13 +221,6 @@ class EmbodiedAgent:
                 texts = [b.text for b in response.content if hasattr(b, "text")]
                 final_text = "\n".join(texts) if texts else "(no response)"
 
-                # Save observation to memory if there was camera activity
-                camera_used = any(
-                    b.type == "tool_use" and b.name == "camera_capture"
-                    for msg in self.messages
-                    for b in (msg.get("content") if isinstance(msg.get("content"), list) else [])
-                    if isinstance(b, dict) and b.get("type") == "tool_use"
-                )
                 if final_text and final_text != "(no response)":
                     await self._memory.save_async(final_text[:500], direction="観察")
 
