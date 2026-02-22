@@ -35,6 +35,10 @@ def _detect_lang() -> str:
         return "ja"
     if lang.startswith("zh"):
         return "zh"
+    if lang.startswith("fr"):
+        return "fr"
+    if lang.startswith("de"):
+        return "de"
     return "en"
 
 
@@ -44,51 +48,71 @@ _T: dict[str, dict[str, str]] = {
     "startup": {
         "ja": "familiar-ai 起動。/quit で終了、Ctrl+L で履歴クリア。ログ: {log_path}",
         "zh": "familiar-ai 已启动。输入 /quit 退出，Ctrl+L 清除历史。日志: {log_path}",
+        "fr": "familiar-ai démarré. /quit pour quitter, Ctrl+L pour effacer. Journal : {log_path}",
+        "de": "familiar-ai gestartet. /quit zum Beenden, Ctrl+L zum Löschen. Log: {log_path}",
         "en": "familiar-ai started. /quit to exit, Ctrl+L to clear history. Log: {log_path}",
     },
     "history_cleared": {
         "ja": "── 履歴クリア ──",
         "zh": "── 历史已清除 ──",
+        "fr": "── historique effacé ──",
+        "de": "── Verlauf gelöscht ──",
         "en": "── history cleared ──",
     },
     "input_placeholder": {
         "ja": "メッセージ > ",
         "zh": "消息 > ",
+        "fr": "message > ",
+        "de": "Nachricht > ",
         "en": "message > ",
     },
     "quit_label": {
         "ja": "終了",
         "zh": "退出",
+        "fr": "Quitter",
+        "de": "Beenden",
         "en": "Quit",
     },
     "clear_label": {
         "ja": "履歴クリア",
         "zh": "清除历史",
+        "fr": "Effacer",
+        "de": "Löschen",
         "en": "Clear history",
     },
     "desire_look_around": {
         "ja": "なんか外が気になってきた…",
         "zh": "突然想看看外面…",
+        "fr": "j'ai envie de regarder dehors…",
+        "de": "ich bin neugierig, was draußen passiert…",
         "en": "feeling curious about outside…",
     },
     "desire_explore": {
         "ja": "ちょっと動きたくなってきたな…",
         "zh": "想动动了…",
+        "fr": "j'ai envie de bouger un peu…",
+        "de": "ich möchte mich etwas bewegen…",
         "en": "feeling like moving around…",
     },
     "desire_greet_companion": {
         "ja": "誰かいるかな…",
         "zh": "有人在吗…",
+        "fr": "je me demande si quelqu'un est là…",
+        "de": "ich frage mich, ob jemand da ist…",
         "en": "wondering if someone's around…",
     },
     "desire_rest": {
         "ja": "少し休憩しよかな…",
         "zh": "想休息一下…",
+        "fr": "j'ai envie de me reposer un peu…",
+        "de": "ich möchte mich kurz ausruhen…",
         "en": "feeling like resting a bit…",
     },
     "desire_default": {
         "ja": "ちょっと気になることがあって…",
         "zh": "有点在意的事…",
+        "fr": "quelque chose attire mon attention…",
+        "de": "etwas hat meine Aufmerksamkeit geweckt…",
         "en": "something caught my attention…",
     },
 }
