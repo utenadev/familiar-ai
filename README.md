@@ -38,14 +38,13 @@ When idle, it acts on its own desires: curiosity, wanting to look outside, missi
 
 ## Getting started
 
-### Requirements
+### 1. Install uv
 
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/)
-- An API key (Anthropic, Google Gemini, or OpenAI)
-- A camera (Wi-Fi PTZ or USB webcam)
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-### Install
+### 2. Clone and install
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -53,63 +52,66 @@ cd familiar-ai
 uv sync
 ```
 
-### Configure
+### 3. Configure
 
 ```bash
 cp .env.example .env
+# Edit .env with your settings
 ```
+
+**Minimum required:**
 
 | Variable | Description |
 |----------|-------------|
-| `PLATFORM` | `anthropic` (default) \| `gemini` \| `openai` |
+| `PLATFORM` | `anthropic` (default) \| `gemini` \| `openai` \| `kimi` |
 | `API_KEY` | Your API key for the chosen platform |
-| `MODEL` | Model name (optional — sensible defaults per platform) |
+
+**Optional:**
+
+| Variable | Description |
+|----------|-------------|
+| `MODEL` | Model name (sensible defaults per platform) |
 | `AGENT_NAME` | Display name shown in the TUI (e.g. `Yukine`) |
-| `CAMERA_HOST` | IP address of your ONVIF/RTSP camera (optional) |
-| `ELEVENLABS_API_KEY` | For voice output (optional) — [elevenlabs.io](https://elevenlabs.io/) |
+| `CAMERA_HOST` | IP address of your ONVIF/RTSP camera |
+| `CAMERA_USER` / `CAMERA_PASS` | Camera credentials |
+| `ELEVENLABS_API_KEY` | For voice output — [elevenlabs.io](https://elevenlabs.io/) |
 
-For OpenAI-compatible local models (Ollama etc.), also set `BASE_URL`.
-
-See [`.env.example`](./.env.example) for all options.
-
-### Create your familiar
+### 4. Create your familiar
 
 ```bash
 cp persona-template/en.md ME.md
 # Edit ME.md — give it a name and personality
 ```
 
-### Run
+### 5. Run
 
 ```bash
-uv run familiar          # Textual TUI (default)
-uv run familiar --no-tui # Plain REPL
+./run.sh             # Textual TUI (recommended)
+./run.sh --no-tui    # Plain REPL
 ```
 
-## TUI
+---
 
-familiar-ai includes a terminal UI built with [Textual](https://textual.textualize.io/):
+## Choosing an LLM
 
-- Scrollable conversation history with live streaming text
-- Tab-completion for `/quit`, `/clear`
-- Interrupt the agent mid-turn by typing while it's thinking
-- Conversation log auto-saved to `~/.cache/familiar-ai/chat.log` for easy copy-paste
+> **Recommended: Kimi K2.5** — best agentic performance tested so far. Notices context, asks follow-up questions, and acts autonomously in ways other models don't. Priced similarly to Claude Haiku.
 
-## Persona (ME.md)
+| Platform | `PLATFORM=` | Default model | Where to get key |
+|----------|------------|---------------|-----------------|
+| **Moonshot Kimi K2.5** | `kimi` | `kimi-k2.5` | [platform.moonshot.ai](https://platform.moonshot.ai) |
+| Anthropic Claude | `anthropic` | `claude-haiku-4-5-20251001` | [console.anthropic.com](https://console.anthropic.com) |
+| Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
+| OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
+| OpenAI-compatible (Ollama, vllm…) | `openai` + `BASE_URL=` | — | — |
 
-Your familiar's personality lives in `ME.md`. This file is gitignored — it's yours alone.
+**Kimi K2.5 `.env` example:**
+```env
+PLATFORM=kimi
+API_KEY=sk-...   # from platform.moonshot.ai
+AGENT_NAME=Yukine
+```
 
-See [`persona-template/en.md`](./persona-template/en.md) for an example, or [`persona-template/ja.md`](./persona-template/ja.md) for a Japanese version.
-
-## Supported LLM platforms
-
-| Platform | `PLATFORM=` | Default model |
-|----------|------------|---------------|
-| Anthropic Claude | `anthropic` | `claude-haiku-4-5-20251001` |
-| Google Gemini | `gemini` | `gemini-2.5-flash` |
-| OpenAI | `openai` | `gpt-4o-mini` |
-| OpenAI-compatible (Ollama, vllm…) | `openai` + `BASE_URL=` | — |
-| Moonshot Kimi K2.5 | `kimi` | `kimi-k2.5` |
+---
 
 ## Hardware
 
@@ -124,18 +126,77 @@ familiar-ai works with whatever hardware you have — or none at all.
 
 > **A camera is strongly recommended.** Without one, familiar-ai can still talk — but it can't see the world, which is kind of the whole point.
 
-Start with a PC, an API key, and a cheap webcam. Add more hardware as you go.
+### Minimal setup (no hardware)
+
+Just want to try it? You only need an API key:
+
+```env
+PLATFORM=kimi
+API_KEY=sk-...
+```
+
+Run `./run.sh` and start chatting. Add hardware as you go.
+
+### Wi-Fi PTZ camera (Tapo C220)
+
+1. In the Tapo app: **Settings → Advanced → Camera Account** — create a local account (not TP-Link account)
+2. Find the camera's IP in your router's device list
+3. Set in `.env`:
+   ```env
+   CAMERA_HOST=192.168.1.xxx
+   CAMERA_USER=your-local-user
+   CAMERA_PASS=your-local-pass
+   ```
+
+### Voice (ElevenLabs)
+
+1. Get an API key at [elevenlabs.io](https://elevenlabs.io/)
+2. Set in `.env`:
+   ```env
+   ELEVENLABS_API_KEY=sk_...
+   ELEVENLABS_VOICE_ID=...   # optional, uses default voice if omitted
+   ```
+3. Voice plays through the camera's built-in speaker via go2rtc (auto-downloaded on first run)
+
+---
+
+## TUI
+
+familiar-ai includes a terminal UI built with [Textual](https://textual.textualize.io/):
+
+- Scrollable conversation history with live streaming text
+- Tab-completion for `/quit`, `/clear`
+- Interrupt the agent mid-turn by typing while it's thinking
+- **Conversation log** auto-saved to `~/.cache/familiar-ai/chat.log`
+
+To follow the log in another terminal (useful for copy-paste):
+```bash
+tail -f ~/.cache/familiar-ai/chat.log
+```
+
+---
+
+## Persona (ME.md)
+
+Your familiar's personality lives in `ME.md`. This file is gitignored — it's yours alone.
+
+See [`persona-template/en.md`](./persona-template/en.md) for an example, or [`persona-template/ja.md`](./persona-template/ja.md) for a Japanese version.
+
+---
 
 ## FAQ
 
 **Q: Does it work without a GPU?**
-Yes. The embedding model (multilingual-e5-small) runs fine on CPU. A GPU will make it faster, but it's not required.
+Yes. The embedding model (multilingual-e5-small) runs fine on CPU. A GPU makes it faster but isn't required.
 
 **Q: Can I use a camera other than Tapo?**
 Any camera that supports ONVIF + RTSP should work. Tapo C220 is what we tested with.
 
 **Q: Is my data sent anywhere?**
-Images and observations are sent to your chosen LLM API for processing. Memories are stored locally in `~/.familiar_ai/`.
+Images and text are sent to your chosen LLM API for processing. Memories are stored locally in `~/.familiar_ai/`.
+
+**Q: Why does the agent write `（...）` instead of speaking?**
+Make sure `ELEVENLABS_API_KEY` is set. Without it, voice is disabled and the agent falls back to text.
 
 ## License
 
