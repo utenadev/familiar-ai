@@ -17,14 +17,8 @@ jobs:
         with:
           version: "latest"
 
-      - name: Set up Python
-        run: uv python install
-
-      - name: Install dependencies
-        run: uv sync
-
       - name: Lint
-        run: uv run ruff check .
+        run: uvx ruff check .
 
       - name: Format check
-        run: uv run ruff format --check .
+        run: uvx ruff format --check .
