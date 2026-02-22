@@ -76,13 +76,16 @@ See [`persona-template/en.md`](./persona-template/en.md) for an example, or [`pe
 
 ## Hardware
 
-familiar-ai was built with off-the-shelf hardware:
+familiar-ai works with whatever hardware you have — or none at all.
 
-| Part | What it does | Example |
-|------|-------------|---------|
-| Wi-Fi PTZ camera | Eyes + neck | Tapo C220 (~$30) |
-| Robot vacuum | Legs | Any Tuya-compatible model |
-| PC / Raspberry Pi | Brain | Anything that runs Python |
+| Part | What it does | Example | Required? |
+|------|-------------|---------|-----------|
+| Wi-Fi PTZ camera | Eyes + neck | Tapo C220 (~$30) | No |
+| USB webcam | Eyes (fixed) | Any UVC camera | No |
+| Robot vacuum | Legs | Any Tuya-compatible model | No |
+| PC / Raspberry Pi | Brain | Anything that runs Python | **Yes** |
+
+Start with just a PC and an API key. Add hardware as you go.
 
 ## License
 
