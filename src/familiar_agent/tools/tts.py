@@ -70,8 +70,11 @@ class TTSTool:
         # Ensure go2rtc is running at startup
         _ensure_go2rtc(self.go2rtc_url)
 
-    async def say(self, text: str) -> str:
-        """Speak text aloud via ElevenLabs → go2rtc camera speaker."""
+    async def say(self, text: str, target: str = "myself") -> str:
+        """Speak text aloud via ElevenLabs.
+
+        target: "myself" = camera speaker (go2rtc), "speaker" = PC local speaker.
+        """
         import aiohttp
 
         if len(text) > 200:
@@ -100,14 +103,15 @@ class TTSTool:
             tmp_path = f.name
 
         try:
-            ok, msg = await asyncio.to_thread(
-                _play_via_go2rtc, tmp_path, self.go2rtc_url, self.go2rtc_stream
-            )
-            if ok:
-                return f"Said: {text[:50]}..."
-            logger.warning("go2rtc playback failed: %s — falling back to local", msg)
+            if target != "speaker":
+                ok, msg = await asyncio.to_thread(
+                    _play_via_go2rtc, tmp_path, self.go2rtc_url, self.go2rtc_stream
+                )
+                if ok:
+                    return f"Said: {text[:50]}..."
+                logger.warning("go2rtc playback failed: %s — falling back to local", msg)
 
-            # Fallback: local player
+            # Local player (used directly for "speaker", or as fallback for "myself")
             for player_args in (
                 ["mpv", "--no-terminal", "--ao=pulse", tmp_path],
                 ["mpv", "--no-terminal", tmp_path],
@@ -126,7 +130,7 @@ class TTSTool:
                     "%s failed (exit %d): %s", player_args[0], proc.returncode, err[:120]
                 )
 
-            return "TTS playback failed (go2rtc and local players all failed)"
+            return "TTS playback failed (all players failed)"
         finally:
             try:
                 os.unlink(tmp_path)
@@ -137,14 +141,23 @@ class TTSTool:
         return [
             {
                 "name": "say",
-                "description": "Speak text aloud. Use to communicate with people in the room.",
+                "description": (
+                    "Speak text aloud. Use to communicate with people in the room. "
+                    "target='myself' plays through your camera speaker (default). "
+                    "target='speaker' plays through the PC speaker."
+                ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "text": {
                             "type": "string",
                             "description": "Text to speak. Can include ElevenLabs audio tags like [cheerful], [warmly].",
-                        }
+                        },
+                        "target": {
+                            "type": "string",
+                            "enum": ["myself", "speaker"],
+                            "description": "Where to play: 'myself' = camera speaker, 'speaker' = PC speaker.",
+                        },
                     },
                     "required": ["text"],
                 },
@@ -153,7 +166,7 @@ class TTSTool:
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name == "say":
-            result = await self.say(tool_input["text"])
+            result = await self.say(tool_input["text"], tool_input.get("target", "myself"))
             return result, None
         return f"Unknown tool: {tool_name}", None
 
