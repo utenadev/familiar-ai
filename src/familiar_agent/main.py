@@ -41,9 +41,7 @@ def _format_action(name: str, tool_input: dict) -> str:
     """Format a tool call for display."""
     base = ACTION_ICONS.get(name, f"⚙  {name}...")
     if name == "camera_look":
-        direction = tool_input.get("direction", "?")
-        degrees = tool_input.get("degrees", 30)
-        return f"↩️  {direction}に{degrees}度..."
+        return "↩️  見回してる..."
     elif name == "move":
         direction = tool_input.get("direction", "?")
         duration = tool_input.get("duration")
