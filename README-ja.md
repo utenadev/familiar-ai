@@ -1,47 +1,49 @@
 # familiar-ai 🐾
 
-**あなたのそばに暮らすAI** — 目があり、声があり、脚があり、記憶がある。
+**あなたのそばに住むAI** — 目、声、足、そして記憶を持って。
 
 [![Lint](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/kmizu?style=flat&logo=github&color=ea4aaa)](https://github.com/sponsors/kmizu)
 
-[English README](./README.md)
+- [日本語](./README-ja.md)
+- [中文](./README-zh.md)
+- [繁體中文](./README-zh-TW.md)
+- [Français](./README-fr.md)
+- [Deutsch](./README-de.md)
 
 ---
 
-[![デモ動画](https://img.youtube.com/vi/D5U8msRib10/0.jpg)](https://youtu.be/D5U8msRib10)
+[![Demo video](https://img.youtube.com/vi/hiR9uWRnjt4/0.jpg)](https://youtube.com/shorts/hiR9uWRnjt4)
 
----
+familiar-ai はあなたの家に住むAIコンパニオンです。
+数分でセットアップ可能。コーディング不要です。
 
-familiar-ai はあなたの家に暮らすAIコンパニオンです。
-数分でセットアップできます。コーディング不要。
-
-カメラを通じて現実世界を認識し、ロボットボディで動き回り、声を出して話し、見たものを覚えています。名前をつけて、性格を書いて、一緒に暮らしましょう。
+カメラを通じて現実世界を認識し、ロボットボディで動き回り、声を出して話し、見たものを記憶します。名前をつけて、性格を書いて、一緒に生活させましょう。
 
 ## できること
 
 - 👁 **見る** — Wi-Fi PTZカメラまたはUSBウェブカメラから画像をキャプチャ
-- 🔄 **周囲を見回す** — カメラをパン・チルトさせて周囲を探索
+- 🔄 **周りを見回る** — カメラをパン・チルトして周囲を探索
 - 🦿 **動く** — ロボット掃除機で部屋を移動
-- 🗣 **話す** — ElevenLabs TTSで声を出す
-- 🧠 **覚える** — セマンティック検索を使って能動的に記憶を保存・想起（SQLite + embeddings）
-- 🫀 **心の理論** — 相手の立場に立ってから返答
-- 💭 **欲望** — 自律的な行動をトリガーする内的動機を持つ
+- 🗣 **話す** — ElevenLabs TTS で音声出力
+- 🧠 **記憶する** — セマンティック検索で積極的に記憶を保存・検索（SQLite + 埋め込みベクトル）
+- 🫀 **心の理論** — 相手の視点を考慮してから応答
+- 💭 **欲望** — 自律的な行動を促す独自の内的動機を持つ
 
 ## 仕組み
 
-familiar-ai は選んだLLMで動く [ReAct](https://arxiv.org/abs/2210.03629) ループを実行します。ツールを通じて世界を認識し、次に何をすべきか考えて、行動します — ちょうど人間のように。
+familiar-ai は、選択した LLM で動く [ReAct](https://arxiv.org/abs/2210.03629) ループを実行します。ツールを通じて世界を認識し、次に何をするかを考え、行動します — ちょうど人間のように。
 
 ```
 user input
   → think → act (camera / move / speak / remember) → observe → think → ...
 ```
 
-アイドル状態では、独自の欲求に従って動きます：好奇心、外を見たい気持ち、一緒に暮らす人に会いたい気持ち。
+アイドル時は、独自の欲望に基づいて行動します：好奇心、外を見たい気持ち、一緒に暮らす人を恋しく思う気持ち。
 
-## はじめる
+## はじめ方
 
 ### 1. uv をインストール
 
@@ -61,79 +63,79 @@ uv sync
 
 ```bash
 cp .env.example .env
-# .env を編集して設定を入力
+# .env をあなたの設定で編集してください
 ```
 
-**必須項目：**
+**最小限の設定:**
 
 | 変数 | 説明 |
-|------|------|
-| `PLATFORM` | `anthropic`（デフォルト）\| `gemini` \| `openai` \| `kimi` |
-| `API_KEY` | 選んだプラットフォームのAPIキー |
+|----------|-------------|
+| `PLATFORM` | `anthropic` (デフォルト) \| `gemini` \| `openai` \| `kimi` |
+| `API_KEY` | 選択したプラットフォームの API キー |
 
-**オプション：**
+**オプション:**
 
 | 変数 | 説明 |
-|------|------|
+|----------|-------------|
 | `MODEL` | モデル名（プラットフォームごとにデフォルト値あり） |
-| `AGENT_NAME` | TUIに表示される名前（例：`ユキネ`） |
-| `CAMERA_HOST` | ONVIF/RTSPカメラのIPアドレス |
+| `AGENT_NAME` | TUI に表示される名前（例 `Yukine`） |
+| `CAMERA_HOST` | ONVIF/RTSP カメラの IP アドレス |
 | `CAMERA_USER` / `CAMERA_PASS` | カメラの認証情報 |
 | `ELEVENLABS_API_KEY` | 音声出力用 — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. familiarを作る
+### 4. あなたの Familiar を作成
 
 ```bash
 cp persona-template/en.md ME.md
-# ME.md を編集して、名前と性格を設定
+# ME.md を編集 — 名前と性格を与えてください
 ```
 
 ### 5. 実行
 
 ```bash
-./run.sh             # Textual TUI（推奨）
-./run.sh --no-tui    # プレーンREPL
+./run.sh             # Textual TUI (推奨)
+./run.sh --no-tui    # プレーン REPL
 ```
 
 ---
 
-## LLMを選ぶ
+## LLM の選択
 
-> **推奨：Kimi K2.5** — テスト済みの中で最高のエージェント性能。文脈に気づき、フォローアップの質問をし、他のモデルにはない方法で自律的に行動します。Claude Haiku と同様の価格帯。
+> **推奨: Kimi K2.5** — これまでのテストで最高のエージェント性能。文脈を把握し、フォローアップ質問を問い掛け、他のモデルではできない方法で自律的に行動します。Claude Haiku と同程度の価格です。
 
-| プラットフォーム | `PLATFORM=` | デフォルトモデル | キーを取得 |
-|------------|------------|---------------|----------|
+| プラットフォーム | `PLATFORM=` | デフォルトモデル | API キー取得先 |
+|----------|------------|---------------|-----------------|
 | **Moonshot Kimi K2.5** | `kimi` | `kimi-k2.5` | [platform.moonshot.ai](https://platform.moonshot.ai) |
 | Anthropic Claude | `anthropic` | `claude-haiku-4-5-20251001` | [console.anthropic.com](https://console.anthropic.com) |
 | Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
-| OpenAI互換（Ollama、vllmなど） | `openai` + `BASE_URL=` | — | — |
+| OpenAI 互換（Ollama, vllm…） | `openai` + `BASE_URL=` | — | — |
 
-**Kimi K2.5 `.env` の例：**
+**Kimi K2.5 `.env` 例:**
 ```env
 PLATFORM=kimi
 API_KEY=sk-...   # platform.moonshot.ai から取得
-AGENT_NAME=ユキネ
+AGENT_NAME=Yukine
 ```
 
 ---
 
 ## ハードウェア
 
-familiar-ai は何を持っていても動きます — 何もなくても大丈夫。
+familiar-ai はどんなハードウェアでも — あるいはまったくなくても動作します。
 
-| パーツ | 役割 | 例 | 必須？ |
-|-------|------|-----|--------|
-| Wi-Fi PTZカメラ | 目 + 首 | Tapo C220（約$30） | **推奨** |
-| USBウェブカメラ | 目（固定） | 任意のUVCカメラ | **推奨** |
-| ロボット掃除機 | 脚 | Tuya互換の任意のモデル | いいえ |
-| PC / Raspberry Pi | 脳 | Python が動く任意のマシン | **はい** |
+| パーツ | 用途 | 例 | 必須？ |
+|------|-------------|---------|-----------|
+| Wi-Fi PTZ カメラ | 目 + 首 | Tapo C220（~$30） | **推奨** |
+| USB ウェブカメラ | 目（固定） | 任意の UVC カメラ | **推奨** |
+| ロボット掃除機 | 足 | 任意の Tuya 互換モデル | いいえ |
+| PC / Raspberry Pi | 脳 | Python が動く任意のもの | **はい** |
 
-> **カメラの使用を強く推奨します。** カメラがないと、familiar-ai は話せますが、世界が見えないので、本来の意味がありません。
+> **カメラを強く推奨します。** なくても familiar-ai は話せますが、世界が見えないため、意味がありません。
 
-### 最小限のセットアップ（ハードウェアなし）
+### 最小セットアップ（ハードウェアなし）
 
-試してみたいだけですか？必要なのはAPIキーだけです：
+試してみたいだけですか？API キーがあれば十分です：
 
 ```env
 PLATFORM=kimi
@@ -142,10 +144,10 @@ API_KEY=sk-...
 
 `./run.sh` を実行してチャットを始めましょう。後からハードウェアを追加できます。
 
-### Wi-Fi PTZカメラ（Tapo C220）
+### Wi-Fi PTZ カメラ（Tapo C220）
 
-1. Tapoアプリで：**設定 → 詳細設定 → カメラアカウント** — ローカルアカウントを作成（TP-Link アカウントではなく）
-2. ルータのデバイスリストからカメラのIPを確認
+1. Tapo アプリで：**設定 → 詳細設定 → カメラアカウント** — ローカルアカウントを作成（TP-Link アカウントではなく）
+2. ルーターのデバイスリストからカメラの IP を確認
 3. `.env` に設定：
    ```env
    CAMERA_HOST=192.168.1.xxx
@@ -155,53 +157,57 @@ API_KEY=sk-...
 
 ### 音声（ElevenLabs）
 
-1. [elevenlabs.io](https://elevenlabs.io/) でAPIキーを取得
+1. [elevenlabs.io](https://elevenlabs.io/) で API キーを取得
 2. `.env` に設定：
    ```env
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # オプション、省略時はデフォルト音声を使用
    ```
-3. 音声はgo2rtc経由でカメラのスピーカーから再生されます（初回実行時に自動ダウンロード）
+3. 音声はカメラの内蔵スピーカーから go2rtc 経由で再生（初回実行時に自動ダウンロード）
 
 ---
 
 ## TUI
 
-familiar-ai には [Textual](https://textual.textualize.io/) で構築されたターミナルUIが含まれています：
+familiar-ai は [Textual](https://textual.textualize.io/) で作られたターミナル UI を含みます：
 
-- スクロール可能な会話履歴とリアルタイムストリーミングテキスト
+- ライブストリーミングテキスト付きスクロール可能な会話履歴
 - `/quit`、`/clear` のタブ補完
-- エージェントが考えている最中に入力して、途中で中断可能
-- **会話ログ** は自動的に `~/.cache/familiar-ai/chat.log` に保存
+- エージェントが考えている最中に入力して中断可能
+- **会話ログ** が自動保存される（`~/.cache/familiar-ai/chat.log`）
 
-別のターミナルでログを追跡（コピペに便利）：
+別のターミナルでログをフォロー（コピペに便利）：
 ```bash
 tail -f ~/.cache/familiar-ai/chat.log
 ```
 
 ---
 
-## Persona（ME.md）
+## ペルソナ（ME.md）
 
-あなたの familiar の性格は `ME.md` に住んでいます。このファイルは gitignore されています — あなただけのものです。
+あなたの Familiar の性格は `ME.md` に保存されます。このファイルは gitignore されており — あなただけのものです。
 
-[`persona-template/en.md`](./persona-template/en.md) で例を見るか、[`persona-template/ja.md`](./persona-template/ja.md) で日本語版を見てください。
+例は [`persona-template/en.md`](./persona-template/en.md) を、日本語版は [`persona-template/ja.md`](./persona-template/ja.md) を参照してください。
 
 ---
 
 ## FAQ
 
-**Q: GPUなしで動きますか？**
-はい。埋め込みモデル（multilingual-e5-small）はCPUで問題なく動きます。GPUはあれば速いですが、必須ではありません。
+**Q: GPU なしで動作しますか？**
+はい。埋め込みモデル（multilingual-e5-small）は CPU で快適に動作します。GPU があるとより速いですが、必須ではありません。
 
-**Q: Tapo以外のカメラは使えますか？**
-ONVIF + RTSP をサポートするカメラなら動くはずです。Tapo C220 はテスト済みです。
+**Q: Tapo 以外のカメラは使えますか？**
+ONVIF + RTSP をサポートする任意のカメラが動作します。Tapo C220 でテスト済みです。
 
-**Q: データはどこかに送られますか？**
-画像とテキストは処理のために選んだLLM APIに送られます。メモリはローカルの `~/.familiar_ai/` に保存されます。
+**Q: データはどこかに送られていますか？**
+画像とテキストは処理のため選択した LLM API に送信されます。記憶は `~/.familiar_ai/` にローカルに保存されます。
 
-**Q: エージェントが話す代わりに `（...）` と書くのはなぜ？**
-`ELEVENLABS_API_KEY` が設定されていることを確認してください。ないと、音声は無効になり、エージェントはテキストにフォールバックします。
+**Q: エージェントが `（...）` と書く代わりに話しません。**
+`ELEVENLABS_API_KEY` が設定されていることを確認してください。なければ音声は無効になり、エージェントはテキストにフォールバックします。
+
+## 技術的背景
+
+仕組みが気になりますか？[docs/technical.md](./docs/technical.md) で familiar-ai の研究と設計決定を参照してください — ReAct、SayCan、Reflexion、Voyager、欲望システムなど。
 
 ## ライセンス
 

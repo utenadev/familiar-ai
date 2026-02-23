@@ -5,40 +5,45 @@
 [![Lint](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/kmizu/familiar-ai/actions/workflows/lint.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/kmizu?style=flat&logo=github&color=ea4aaa)](https://github.com/sponsors/kmizu)
 
-[English README](./README.md)
+- [日本語](./README-ja.md)
+- [中文](./README-zh.md)
+- [繁體中文](./README-zh-TW.md)
+- [Français](./README-fr.md)
+- [Deutsch](./README-de.md)
 
 ---
 
-[![Vidéo de démo](https://img.youtube.com/vi/kakc5jUBFjM/0.jpg)](https://youtube.com/shorts/kakc5jUBFjM)
+[![Demo video](https://img.youtube.com/vi/hiR9uWRnjt4/0.jpg)](https://youtube.com/shorts/hiR9uWRnjt4)
 
-familiar-ai est une IA compagne qui vit dans votre maison.
-Installez-la en quelques minutes. Aucun code requis.
+familiar-ai est une compagne IA qui vit dans votre maison.
+Installez-la en quelques minutes. Aucune connaissance en programmation requise.
 
-Elle perçoit le monde réel par des caméras, se déplace sur un corps de robot, parle à haute voix et se souvient de ce qu'elle voit. Donnez-lui un nom, écrivez sa personnalité, et laissez-la vivre avec vous.
+Elle perçoit le monde réel via des caméras, se déplace sur un robot, parle à haute voix et se souvient de ce qu'elle voit. Donnez-lui un nom, écrivez sa personnalité, et laissez-la vivre avec vous.
 
 ## Ce qu'elle peut faire
 
-- 👁 **Voir** — capture des images à partir d'une caméra PTZ Wi-Fi ou d'une webcam USB
-- 🔄 **Regarder autour** — incline et fait pivoter la caméra pour explorer ses alentours
-- 🦿 **Se déplacer** — conduit un aspirateur robot pour explorer la pièce
+- 👁 **Voir** — capture des images via une caméra PTZ Wi-Fi ou un webcam USB
+- 🔄 **Regarder autour** — pivote et incline la caméra pour explorer son environnement
+- 🦿 **Se déplacer** — pilote un robot aspirateur pour explorer la pièce
 - 🗣 **Parler** — s'exprime via la synthèse vocale ElevenLabs
-- 🧠 **Se souvenir** — enregistre et rappelle activement les souvenirs avec recherche sémantique (SQLite + embeddings)
-- 🫀 **Théorie de l'esprit** — adopte la perspective d'autrui avant de répondre
-- 💭 **Désirs** — possède ses propres motivations internes qui déclenchent un comportement autonome
+- 🧠 **Se souvenir** — stocke et récupère activement les souvenirs avec recherche sémantique (SQLite + embeddings)
+- 🫀 **Théorie de l'esprit** — prend en compte la perspective de l'autre avant de répondre
+- 💭 **Désir** — a ses propres motivations internes qui déclenchent un comportement autonome
 
-## Comment ça fonctionne
+## Comment ça marche
 
-familiar-ai exécute une boucle [ReAct](https://arxiv.org/abs/2210.03629) alimentée par votre LLM de choix. Elle perçoit le monde par des outils, réfléchit à la prochaine action à faire et agit — comme une personne le ferait.
+familiar-ai exécute une boucle [ReAct](https://arxiv.org/abs/2210.03629) alimentée par l'LLM de votre choix. Elle perçoit le monde à travers des outils, réfléchit à ce qu'elle doit faire ensuite, et agit — comme une personne le ferait.
 
 ```
-entrée utilisateur
-  → penser → agir (caméra / bouger / parler / mémoriser) → observer → penser → ...
+input utilisateur
+  → réfléchir → agir (caméra / bouger / parler / mémoriser) → observer → réfléchir → ...
 ```
 
-Quand elle est inactive, elle agit selon ses propres désirs : la curiosité, l'envie de regarder dehors, le manque de la personne avec qui elle vit.
+Quand elle est inactive, elle agit selon ses propres désirs : la curiosité, l'envie de regarder dehors, la nostalgie de la personne avec qui elle vit.
 
-## Premiers pas
+## Démarrage rapide
 
 ### 1. Installer uv
 
@@ -58,27 +63,27 @@ uv sync
 
 ```bash
 cp .env.example .env
-# Modifiez .env avec vos paramètres
+# Modifiez .env selon vos paramètres
 ```
 
 **Minimum requis :**
 
 | Variable | Description |
 |----------|-------------|
-| `PLATFORM` | `anthropic` (défaut) \| `gemini` \| `openai` \| `kimi` |
+| `PLATFORM` | `anthropic` (par défaut) \| `gemini` \| `openai` \| `kimi` |
 | `API_KEY` | Votre clé API pour la plateforme choisie |
 
 **Optionnel :**
 
 | Variable | Description |
 |----------|-------------|
-| `MODEL` | Nom du modèle (valeurs par défaut judicieuses par plateforme) |
-| `AGENT_NAME` | Nom d'affichage dans l'interface textuelle (ex. `Yukine`) |
+| `MODEL` | Nom du modèle (defaults sensibles par plateforme) |
+| `AGENT_NAME` | Nom affiché dans l'interface TUI (ex. `Yukine`) |
 | `CAMERA_HOST` | Adresse IP de votre caméra ONVIF/RTSP |
 | `CAMERA_USER` / `CAMERA_PASS` | Identifiants de la caméra |
 | `ELEVENLABS_API_KEY` | Pour la sortie vocale — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. Créer votre compagne
+### 4. Créer votre compagne IA
 
 ```bash
 cp persona-template/en.md ME.md
@@ -88,7 +93,7 @@ cp persona-template/en.md ME.md
 ### 5. Lancer
 
 ```bash
-./run.sh             # Interface textuelle (recommandé)
+./run.sh             # Interface TUI textuelle (recommandé)
 ./run.sh --no-tui    # REPL simple
 ```
 
@@ -96,7 +101,7 @@ cp persona-template/en.md ME.md
 
 ## Choisir un LLM
 
-> **Recommandé : Kimi K2.5** — meilleure performance agentic testée jusqu'à présent. Comprend le contexte, pose des questions de suivi et agit de manière autonome d'une façon que d'autres modèles ne font pas. Prix comparable à Claude Haiku.
+> **Recommandé : Kimi K2.5** — meilleure performance agentique testée à ce jour. Remarque le contexte, pose des questions de suivi, et agit de manière autonome comme d'autres modèles ne le font pas. Prix similaire à Claude Haiku.
 
 | Plateforme | `PLATFORM=` | Modèle par défaut | Où obtenir la clé |
 |----------|------------|---------------|-----------------|
@@ -117,20 +122,20 @@ AGENT_NAME=Yukine
 
 ## Matériel
 
-familiar-ai fonctionne avec le matériel que vous avez — ou rien du tout.
+familiar-ai fonctionne avec le matériel que vous avez — ou sans aucun.
 
 | Composant | Rôle | Exemple | Requis ? |
 |------|-------------|---------|-----------|
 | Caméra PTZ Wi-Fi | Yeux + cou | Tapo C220 (~$30) | **Recommandé** |
-| Webcam USB | Yeux (fixes) | Toute caméra UVC | **Recommandé** |
-| Aspirateur robot | Jambes | Tout modèle compatible Tuya | Non |
-| PC / Raspberry Pi | Cerveau | Tout ce qui exécute Python | **Oui** |
+| Webcam USB | Yeux (fixes) | N'importe quelle caméra UVC | **Recommandé** |
+| Robot aspirateur | Jambes | N'importe quel modèle compatible Tuya | Non |
+| PC / Raspberry Pi | Cerveau | N'importe quoi qui exécute Python | **Oui** |
 
-> **Une caméra est fortement recommandée.** Sans elle, familiar-ai peut toujours parler — mais elle ne peut pas voir le monde, ce qui est un peu tout l'intérêt.
+> **Une caméra est fortement recommandée.** Sans elle, familiar-ai peut toujours parler — mais elle ne peut pas voir le monde, ce qui est un peu le point essentiel.
 
 ### Configuration minimale (sans matériel)
 
-Vous voulez juste l'essayer ? Vous n'avez besoin que d'une clé API :
+Juste envie d'essayer ? Vous avez seulement besoin d'une clé API :
 
 ```env
 PLATFORM=kimi
@@ -141,9 +146,9 @@ Lancez `./run.sh` et commencez à discuter. Ajoutez du matériel au fur et à me
 
 ### Caméra PTZ Wi-Fi (Tapo C220)
 
-1. Dans l'app Tapo : **Paramètres → Avancé → Compte caméra** — créez un compte local (pas de compte TP-Link)
+1. Dans l'app Tapo : **Paramètres → Avancé → Compte caméra** — créez un compte local (pas un compte TP-Link)
 2. Trouvez l'IP de la caméra dans la liste des appareils de votre routeur
-3. Définissez dans `.env` :
+3. Défissez dans `.env` :
    ```env
    CAMERA_HOST=192.168.1.xxx
    CAMERA_USER=your-local-user
@@ -153,22 +158,22 @@ Lancez `./run.sh` et commencez à discuter. Ajoutez du matériel au fur et à me
 ### Voix (ElevenLabs)
 
 1. Obtenez une clé API sur [elevenlabs.io](https://elevenlabs.io/)
-2. Définissez dans `.env` :
+2. Défissez dans `.env` :
    ```env
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # optionnel, utilise la voix par défaut si omis
    ```
-3. La voix joue via le haut-parleur intégré de la caméra via go2rtc (téléchargé automatiquement au premier lancement)
+3. La voix est diffusée via le haut-parleur intégré de la caméra via go2rtc (téléchargé automatiquement au premier lancement)
 
 ---
 
-## Interface textuelle
+## Interface TUI
 
-familiar-ai inclut une interface textuelle créée avec [Textual](https://textual.textualize.io/) :
+familiar-ai inclut une interface utilisateur textuelle construite avec [Textual](https://textual.textualize.io/):
 
-- Historique de conversation scrollable avec diffusion de texte en direct
-- Complément de tabulation pour `/quit`, `/clear`
-- Interrompez l'agent en cours d'exécution en tapant pendant qu'il réfléchit
+- Historique de conversation avec flux de texte en direct
+- Complément de tab pour `/quit`, `/clear`
+- Interrompez l'agent au cours de son traitement en tapant
 - **Journal de conversation** sauvegardé automatiquement dans `~/.cache/familiar-ai/chat.log`
 
 Pour suivre le journal dans un autre terminal (utile pour copier-coller) :
@@ -180,7 +185,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## Persona (ME.md)
 
-La personnalité de votre compagne vit dans `ME.md`. Ce fichier est ignoré par git — il vous appartient seul.
+La personnalité de votre compagne IA vit dans `ME.md`. Ce fichier est ignoré par git — il est juste à vous.
 
 Consultez [`persona-template/en.md`](./persona-template/en.md) pour un exemple, ou [`persona-template/ja.md`](./persona-template/ja.md) pour une version japonaise.
 
@@ -188,17 +193,21 @@ Consultez [`persona-template/en.md`](./persona-template/en.md) pour un exemple, 
 
 ## FAQ
 
-**Q : Ça fonctionne sans GPU ?**
-Oui. Le modèle d'embedding (multilingual-e5-small) s'exécute bien sur CPU. Un GPU le rend plus rapide mais n'est pas requis.
+**Q : Ça marche sans GPU ?**
+Oui. Le modèle d'embedding (multilingual-e5-small) fonctionne bien sur CPU. Un GPU c'est plus rapide mais pas obligatoire.
 
-**Q : Puis-je utiliser une caméra autre que Tapo ?**
-Toute caméra supportant ONVIF + RTSP devrait fonctionner. Tapo C220 est ce que nous avons testé.
+**Q : Je peux utiliser une caméra autre que Tapo ?**
+N'importe quelle caméra supportant ONVIF + RTSP devrait marcher. Tapo C220 c'est ce qu'on a testé.
 
 **Q : Mes données sont-elles envoyées quelque part ?**
-Les images et le texte sont envoyés à l'API LLM de votre choix pour traitement. Les souvenirs sont stockés localement dans `~/.familiar_ai/`.
+Les images et textes sont envoyés à votre API LLM choisi pour traitement. Les souvenirs sont stockés localement dans `~/.familiar_ai/`.
 
-**Q : Pourquoi l'agent écrit-il `（...）` au lieu de parler ?**
-Assurez-vous que `ELEVENLABS_API_KEY` est défini. Sans lui, la voix est désactivée et l'agent revient au texte.
+**Q : Pourquoi l'agent écrit `（...）` au lieu de parler ?**
+Assurez-vous que `ELEVENLABS_API_KEY` est défini. Sans cela, la voix est désactivée et l'agent revient au texte.
+
+## Contexte technique
+
+Curieux de savoir comment ça marche ? Consultez [docs/technical.md](./docs/technical.md) pour les recherches et les décisions de conception derrière familiar-ai — ReAct, SayCan, Reflexion, Voyager, le système de désir, et plus.
 
 ## Licence
 
