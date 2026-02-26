@@ -178,17 +178,45 @@ Starte `./run.sh` und fang an zu chatten. Füge Hardware später hinzu.
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # optional, verwendet Standardstimme wenn weggelassen
    ```
-3. Die Stimme wird über den integrierten Kameralautsprecher via go2rtc abgespielt (beim ersten Start automatisch heruntergeladen)
+Es gibt zwei Wiedergabeziele:
 
-**Lokale Audiowiedergabe** (Fallback oder ohne Kameralautsprecher) erfordert **mpv** oder **ffplay**. mpv wird empfohlen:
+#### A) Kameralautsprecher (via go2rtc)
+
+Um Audio über den integrierten Kameralautsprecher abzuspielen, muss [go2rtc](https://github.com/AlexxIT/go2rtc/releases) manuell eingerichtet werden:
+
+1. Lade das Binary von der [Releases-Seite](https://github.com/AlexxIT/go2rtc/releases) herunter:
+   - Linux/macOS: `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows: `go2rtc_win64.exe`**
+
+2. Ablegen und umbenennen:
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc          # chmod +x erforderlich
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. `go2rtc.yaml` im selben Verzeichnis erstellen:
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+
+4. familiar-ai startet go2rtc automatisch beim Start. Wenn die Kamera bidirektionales Audio (Backchannel) unterstützt, kommt die Stimme aus dem Kameralautsprecher.
+
+#### B) Lokaler PC-Lautsprecher (Fallback)
+
+Ohne go2rtc oder wenn die Kamera kein Backchannel-Audio unterstützt, wird auf **mpv** oder **ffplay** zurückgefallen:
 
 | OS | Installation |
 |----|-------------|
 | macOS | `brew install mpv` |
 | Ubuntu / Debian | `sudo apt install mpv` |
-| Windows | [mpv.io/installation](https://mpv.io/installation/) — herunterladen und zu PATH hinzufügen, **oder** ffmpeg installieren: `winget install ffmpeg` |
+| Windows | [mpv.io/installation](https://mpv.io/installation/) — herunterladen und zu PATH hinzufügen, **oder** `winget install ffmpeg` |
 
-> Ohne mpv oder ffplay kann familiar-ai Sprache generieren, aber nicht lokal abspielen. Kameralautsprecher (go2rtc) ist davon nicht betroffen.
+> Ohne go2rtc und lokalen Player funktioniert die Sprachgenerierung (ElevenLabs API) weiterhin — die Wiedergabe wird lediglich übersprungen.
 
 ---
 

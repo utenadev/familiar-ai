@@ -183,17 +183,47 @@ Run `./run.sh` and start chatting. Add hardware as you go.
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # optional, uses default voice if omitted
    ```
-3. Voice plays through the camera's built-in speaker via go2rtc (auto-downloaded on first run)
 
-**Local audio playback** (used as fallback, or when no camera speaker is configured) requires **mpv** or **ffplay**. mpv is recommended:
+There are two playback destinations:
+
+#### A) Camera speaker (via go2rtc)
+
+To play audio through the camera's built-in speaker, set up [go2rtc](https://github.com/AlexxIT/go2rtc/releases) manually:
+
+1. Download the binary from the [releases page](https://github.com/AlexxIT/go2rtc/releases):
+   - Linux/macOS: `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows: `go2rtc_win64.exe`**
+
+2. Place and rename it:
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc          # chmod +x required
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. Create `go2rtc.yaml` in the same directory:
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+   Use the local camera account credentials (not your TP-Link cloud account).
+
+4. familiar-ai starts go2rtc automatically at launch. If your camera supports two-way audio (backchannel), voice plays from the camera speaker.
+
+#### B) Local PC speaker (fallback)
+
+If go2rtc is not set up, or the camera does not support backchannel audio, familiar-ai falls back to **mpv** or **ffplay**:
 
 | OS | Install |
 |----|---------|
 | macOS | `brew install mpv` |
 | Ubuntu / Debian | `sudo apt install mpv` |
-| Windows | [mpv.io/installation](https://mpv.io/installation/) — download and add to PATH, **or** install ffmpeg: `winget install ffmpeg` |
+| Windows | [mpv.io/installation](https://mpv.io/installation/) — download and add to PATH, **or** `winget install ffmpeg` |
 
-> Without mpv or ffplay, familiar-ai can still generate speech — it just won't play it locally. Voice via camera speaker (go2rtc) is unaffected.
+> If neither go2rtc nor a local player is available, speech is still generated — it just won't play.
 
 ---
 

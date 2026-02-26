@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -16,7 +17,8 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 _GO2RTC_CACHE = Path.home() / ".cache" / "embodied-claude" / "go2rtc"
-_GO2RTC_BIN = _GO2RTC_CACHE / "go2rtc"
+# On Windows the binary is go2rtc.exe; on other platforms there is no extension.
+_GO2RTC_BIN = _GO2RTC_CACHE / ("go2rtc.exe" if sys.platform == "win32" else "go2rtc")
 _GO2RTC_CONFIG = _GO2RTC_CACHE / "go2rtc.yaml"
 
 

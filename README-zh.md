@@ -178,17 +178,45 @@ API_KEY=sk-...
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # 可选，省略则使用默认声音
    ```
-3. 语音通过 go2rtc（首次运行时自动下载）通过摄像头内置扬声器播放
+音频有两种播放方式：
 
-**本地音频播放**（无摄像头扬声器时的回退方案）需要安装 **mpv** 或 **ffplay**，推荐使用 mpv：
+#### A) 摄像头扬声器（通过 go2rtc）
+
+若要通过摄像头内置扬声器播放，需手动安装 [go2rtc](https://github.com/AlexxIT/go2rtc/releases)：
+
+1. 从[发布页面](https://github.com/AlexxIT/go2rtc/releases)下载二进制文件：
+   - Linux/macOS：`go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows：`go2rtc_win64.exe`**
+
+2. 放置并重命名到以下路径：
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc          # 需要 chmod +x
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. 在同一目录下创建 `go2rtc.yaml`：
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+
+4. familiar-ai 启动时会自动启动 go2rtc。如果摄像头支持双向音频，声音将从摄像头扬声器输出。
+
+#### B) 本地 PC 扬声器（回退方案）
+
+未配置 go2rtc 或摄像头不支持双向音频时，回退到 **mpv** 或 **ffplay**：
 
 | 操作系统 | 安装方式 |
 |---------|---------|
 | macOS | `brew install mpv` |
 | Ubuntu / Debian | `sudo apt install mpv` |
-| Windows | 从 [mpv.io/installation](https://mpv.io/installation/) 下载并添加到 PATH，**或**安装 ffmpeg：`winget install ffmpeg` |
+| Windows | 从 [mpv.io/installation](https://mpv.io/installation/) 下载并添加到 PATH，**或** `winget install ffmpeg` |
 
-> 未安装 mpv 或 ffplay 时，familiar-ai 仍可生成语音，但无法在本地播放。通过摄像头扬声器（go2rtc）播放不受影响。
+> 即使没有 go2rtc 或本地播放器，语音生成本身（ElevenLabs API 调用）仍可正常工作，只是不会播放。
 
 ---
 
