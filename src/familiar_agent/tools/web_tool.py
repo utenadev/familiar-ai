@@ -14,7 +14,6 @@ class WebTool:
         self.max_results = max_results
         self.fetch_limit = fetch_limit
         logger.info("WebTool initialized. max_results=%d, fetch_limit=%d", max_results, fetch_limit)
-
     def search(self, query: str) -> str:
         """Search the web using DuckDuckGo."""
         logger.info("Web search starting: query='%s', max_results=%d", query, self.max_results)
@@ -22,7 +21,7 @@ class WebTool:
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=self.max_results))
             
-            logger.debug("DDGS returned %d results for query: %s", len(results), query)
+            logger.debug("DDGS returned %d results", len(results))
             
             if not results:
                 logger.warning("No search results found for query: %s", query)
@@ -35,9 +34,8 @@ class WebTool:
                 lines.append("   Summary: " + r['body'])
                 lines.append("")
             
-            logger.info("Web search completed: %d results returned for query: %s", len(results), query)
-            return "
-".join(lines)
+            logger.info("Web search completed: %d results returned", len(results))
+            return "\n".join(lines)
         except Exception as e:
             logger.error("Search failed for query '%s': %s", query, e)
             return "Error during web search: " + str(e)
@@ -65,20 +63,16 @@ class WebTool:
             for s in soup(["script", "style", "nav", "footer", "header"]):
                 s.decompose()
             
-            text = soup.get_text(separator="
-")
+            text = soup.get_text(separator="\n")
             # Clean up whitespace
             lines = [l.strip() for l in text.splitlines() if l.strip()]
-            text = "
-".join(lines)
+            text = "\n".join(lines)
 
             if not full and len(text) > self.fetch_limit:
-                logger.info("Fetch completed: %d chars (truncated from %d) from %s", self.fetch_limit, len(text), url)
-                return text[:self.fetch_limit] + "
-
---- [Truncated: Page is longer than " + str(self.fetch_limit) + " characters. Use full=True if needed] ---"
+                logger.info("Fetch completed: %d chars (truncated from %d)", self.fetch_limit, len(text))
+                return text[:self.fetch_limit] + "\n\n--- [Truncated: Page is longer than " + str(self.fetch_limit) + " characters. Use full=True if needed] ---"
             
-            logger.info("Fetch completed: %d chars from %s", len(text), url)
+            logger.info("Fetch completed: %d chars", len(text))
             return text if text else "(No readable text found)"
         except Exception as e:
             logger.error("Fetch failed for URL '%s': %s", url, e)
