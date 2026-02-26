@@ -47,6 +47,10 @@ CSS = """
     color: $text-muted;
 }
 
+#stream.recording {
+    color: $error;
+}
+
 #input-bar {
     dock: bottom;
     height: 3;
@@ -87,6 +91,7 @@ class FamiliarApp(App):
     BINDINGS = [
         Binding("ctrl+c", "quit", _t("quit_label"), show=True),
         Binding("ctrl+l", "clear_history", _t("clear_label"), show=True),
+        Binding("ctrl+m", "toggle_listen", "🎙 Voice", show=True),
     ]
 
     def __init__(self, agent: "EmbodiedAgent", desires: "DesireSystem") -> None:
@@ -100,6 +105,8 @@ class FamiliarApp(App):
         self._agent_running = False
         self._current_text_buf = ""  # buffer for streaming text
         self._log_path = self._open_log_file()
+        self._recording = False
+        self._stop_recording: asyncio.Event = asyncio.Event()
 
     def _open_log_file(self) -> Path:
         log_dir = Path.home() / ".cache" / "familiar-ai"
@@ -315,9 +322,46 @@ class FamiliarApp(App):
         self.desires.satisfy(desire_name)
         self.desires.curiosity_target = None
 
+    async def action_toggle_listen(self) -> None:
+        """Toggle microphone recording for voice input."""
+        if not self.agent.stt:
+            self._log_system("STT not configured (set ELEVENLABS_API_KEY)")
+            return
+
+        stream = self.query_one("#stream", Static)
+
+        if not self._recording:
+            self._recording = True
+            self._stop_recording.clear()
+            stream.add_class("recording")
+            stream.update("🎙 Recording… (Ctrl+M to stop)")
+            self.run_worker(self._do_record(), exclusive=False)
+        else:
+            self._stop_recording.set()
+
+    async def _do_record(self) -> None:
+        """Worker: record until stop_event, transcribe, then submit as user input."""
+        stream = self.query_one("#stream", Static)
+        try:
+            # Wait for stop signal (in case toggle was pressed immediately)
+            await asyncio.sleep(0.1)
+            stream.update("🔄 Transcribing…")
+            text = await self.agent.stt.record_and_transcribe(self._stop_recording)  # type: ignore[union-attr]
+            if text.strip():
+                self._log_user(text)
+                self._last_interaction = time.time()
+                await self._input_queue.put(text)
+        except Exception as e:
+            self._log_system(f"STT error: {e}")
+        finally:
+            self._recording = False
+            stream.remove_class("recording")
+            stream.update("")
+
     def action_clear_history(self) -> None:
         self.agent.clear_history()
         self._log_system(_t("history_cleared"))
 
     async def action_quit(self) -> None:
+        await self.agent.close()
         self.exit()

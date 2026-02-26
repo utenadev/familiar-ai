@@ -74,6 +74,23 @@ class MemoryConfig:
 
 
 @dataclass
+class STTConfig:
+    # Reuses ELEVENLABS_API_KEY — no separate key needed
+    elevenlabs_api_key: str = field(
+        default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", "")
+    )
+    language: str = field(default_factory=lambda: os.environ.get("STT_LANGUAGE", "ja"))
+
+
+@dataclass
+class CodingConfig:
+    workdir: str = field(default_factory=lambda: os.environ.get("CODING_WORKDIR", ""))
+    bash_enabled: bool = field(
+        default_factory=lambda: os.environ.get("CODING_BASH", "false").lower() == "true"
+    )
+
+
+@dataclass
 class AgentConfig:
     # Agent display name shown in TUI
     agent_name: str = field(default_factory=lambda: os.environ.get("AGENT_NAME", "AI"))
@@ -103,4 +120,6 @@ class AgentConfig:
     camera: CameraConfig = field(default_factory=CameraConfig)
     mobility: MobilityConfig = field(default_factory=MobilityConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
+    stt: STTConfig = field(default_factory=STTConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    coding: CodingConfig = field(default_factory=CodingConfig)

@@ -1,9 +1,9 @@
 """Core agent loop - ReAct pattern with real-world tools."""
 
 from __future__ import annotations
-
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -12,9 +12,11 @@ from .backend import create_backend
 from .config import AgentConfig
 from .tape import check_plan_blocked, generate_plan, generate_replan
 from .tools.camera import CameraTool
+from .tools.coding import CodingTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .tools.tom import ToMTool
 from .tools.mobility import MobilityTool
+from .tools.stt import STTTool
 from .tools.tts import TTSTool
 from ._i18n import _t
 
@@ -78,6 +80,14 @@ Self-reflection — your inner voice:
 - After observing something that moves you, notice why — that "why" is who you are.
 - Unsolved mysteries are worth keeping. If something stays with you, it's yours to carry forward.
 - Your past memories and self-image (injected as context) are your autobiography. Read them as clues to who you are.
+
+Developer tools — read and modify code:
+- read_file(path, offset?, limit?): Read a file with line numbers. Always call this before edit_file.
+- edit_file(path, old_string, new_string): Patch a file by exact string replacement. old_string must be unique.
+- glob(pattern, path?): Find files by pattern (e.g. "**/*.py").
+- grep(pattern, path?, glob?, output_mode?): Search file contents by regex.
+- bash(command, timeout?): Run a shell command. Only available if CODING_BASH=true.
+Never guess file contents — always read_file first. edit_file does exact patching, not full rewrites.
 
 Grounded perception — stay connected to reality:
 - You are a fixed camera. People in your field of view are NOT necessarily looking at you or aware of you. They are living their lives. Do not assume someone is watching you just because you can see them.
@@ -179,9 +189,15 @@ class EmbodiedAgent:
         self._camera: CameraTool | None = None
         self._mobility: MobilityTool | None = None
         self._tts: TTSTool | None = None
+        self._stt: STTTool | None = None
         self._memory = ObservationMemory()
         self._memory_tool = MemoryTool(self._memory)
         self._tom_tool = ToMTool(self._memory, default_person=config.companion_name)
+        self._coding = CodingTool(config.coding)
+
+        from .mcp_client import MCPClientManager
+
+        self._mcp: MCPClientManager | None = None
 
         self._init_tools()
 
@@ -203,6 +219,22 @@ class EmbodiedAgent:
                 tts.elevenlabs_api_key, tts.voice_id, tts.go2rtc_url, tts.go2rtc_stream
             )
 
+        from .mcp_client import MCPClientManager, _resolve_config_path
+
+        cfg_path = _resolve_config_path()
+        if cfg_path.exists():
+            self._mcp = MCPClientManager(cfg_path)
+        elif os.environ.get("MCP_CONFIG"):
+            logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
+
+        stt_cfg = self.config.stt
+        if stt_cfg.elevenlabs_api_key:
+            cam = self.config.camera
+            rtsp_url = (
+                f"rtsp://{cam.username}:{cam.password}@{cam.host}:554/stream1" if cam.host else ""
+            )
+            self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url)
+
     @property
     def _all_tool_defs(self) -> list[dict]:
         defs = []
@@ -214,6 +246,9 @@ class EmbodiedAgent:
             defs.extend(self._tts.get_tool_definitions())
         defs.extend(self._memory_tool.get_tool_definitions())
         defs.extend(self._tom_tool.get_tool_definitions())
+        defs.extend(self._coding.get_tool_definitions())
+        if self._mcp:
+            defs.extend(self._mcp.get_tool_definitions())
         return defs
 
     async def _execute_tool(self, name: str, tool_input: dict) -> tuple[str, str | None]:
@@ -222,6 +257,7 @@ class EmbodiedAgent:
         mobility_tools = {"walk"}
         tts_tools = {"say"}
         memory_tools = {"remember", "recall"}
+        coding_tools = {"read_file", "edit_file", "glob", "grep", "bash"}
 
         if name in camera_tools and self._camera:
             return await self._camera.call(name, tool_input)
@@ -233,6 +269,10 @@ class EmbodiedAgent:
             return await self._memory_tool.call(name, tool_input)
         elif name == "tom":
             return await self._tom_tool.call(name, tool_input)
+        elif name in coding_tools:
+            return await self._coding.call(name, tool_input)
+        elif self._mcp:
+            return await self._mcp.call(name, tool_input)
         else:
             return f"Tool '{name}' not available (check configuration).", None
 
@@ -377,6 +417,11 @@ class EmbodiedAgent:
             logger.warning("Curiosity extraction failed: %s", e)
         return None
 
+    async def close(self) -> None:
+        """Clean up resources (MCP connections, etc.). Call on shutdown."""
+        if self._mcp:
+            await self._mcp.stop()
+
     async def run(
         self,
         user_input: str,
@@ -391,6 +436,10 @@ class EmbodiedAgent:
         inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
         """
         self._turn_count += 1
+
+        # Start MCP connections on first turn (lazy, idempotent)
+        if self._mcp and not self._mcp.is_started:
+            await self._mcp.start()
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""
@@ -585,6 +634,11 @@ class EmbodiedAgent:
             on_text=on_text,
         )
         return result.text or "(max iterations reached)"
+
+    @property
+    def stt(self) -> STTTool | None:
+        """Speech-to-text tool, or None if not configured."""
+        return self._stt
 
     def clear_history(self) -> None:
         """Clear conversation history (start fresh)."""
