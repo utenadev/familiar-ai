@@ -91,19 +91,25 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
 
             # No pending input — show prompt and wait briefly
             print("\n> ", end="", flush=True)
+            queued_input: str | None
             try:
-                user_input = await asyncio.wait_for(input_queue.get(), timeout=IDLE_CHECK_INTERVAL)
+                queued_input = await asyncio.wait_for(
+                    input_queue.get(), timeout=IDLE_CHECK_INTERVAL
+                )
             except asyncio.TimeoutError:
-                user_input = None
+                queued_input = None
 
-            if user_input is None and input_queue.empty():
+            if queued_input is None and input_queue.empty():
                 # Genuine idle — check desires, but respect cooldown after conversation
                 if time.time() - last_interaction_time < DESIRE_COOLDOWN:
                     continue  # Still in post-conversation cooldown
 
                 prompt = desires.dominant_as_prompt()
                 if prompt:
-                    desire_name, _ = desires.get_dominant()
+                    dominant = desires.get_dominant()
+                    if dominant is None:
+                        continue
+                    desire_name, _ = dominant
                     murmur = {
                         "look_around": _t("desire_look_around"),
                         "explore": _t("desire_explore"),
@@ -153,9 +159,9 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                         )
                 continue
 
-            if user_input:
+            if queued_input:
                 await _handle_user(
-                    user_input, agent, desires, on_action, on_text, debug, input_queue
+                    queued_input, agent, desires, on_action, on_text, debug, input_queue
                 )
 
     except (KeyboardInterrupt, EOFError):

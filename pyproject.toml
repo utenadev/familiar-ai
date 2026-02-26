@@ -43,15 +43,6 @@ line-length = 100
 ignore_missing_imports = true
 python_version = "3.10"
 
-[[tool.mypy.overrides]]
-module = [
-    "familiar_agent.backend",
-    "familiar_agent.tools.camera",
-    "familiar_agent.tools.memory",
-    "familiar_agent.main",
-]
-ignore_errors = true
-
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

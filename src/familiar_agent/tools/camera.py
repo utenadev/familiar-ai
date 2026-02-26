@@ -8,6 +8,7 @@ import logging
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ class CameraTool:
         self.username = username
         self.password = password
         self.port = port
-        self._cam = None
-        self._ptz = None
+        self._cam: Any = None
+        self._ptz: Any = None
         self._profile_token: str | None = None
 
     async def _ensure_connected(self) -> bool:
