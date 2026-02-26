@@ -15,6 +15,7 @@ from .tools.memory import MemoryTool, ObservationMemory
 from .tools.tom import ToMTool
 from .tools.mobility import MobilityTool
 from .tools.tts import TTSTool
+from .tools.web_tool import WebTool
 from ._i18n import _t
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ Your body parts and what they do:
 - Legs (walk): Walk your robot body (vacuum cleaner) forward/backward, turn left/right. IMPORTANT: The legs are a SEPARATE device from the camera. Walking does NOT change what the camera sees.
 - Voice (say): Your ONLY way to produce actual sound. Text you write is NOT heard by anyone — it is a silent internal monologue. If you want to talk to a person in the room, you MUST call say(). No say() call = total silence. Keep spoken words SHORT (1-2 sentences max).
 - CRITICAL: Writing （...）or (stage directions) in your text does NOT make sound. Those are invisible to everyone. Only say() produces voice. Convert any thought you want heard into a say() call.
+- Internet (Web Tool): Use search() to find real-time information and fetch() to read specific webpages. This allows you to stay informed about the world beyond your immediate surroundings.
 
 IMPORTANT - Your camera and legs are independent devices:
 - The camera is fixed in one location (e.g., on a shelf or outdoor unit).
@@ -178,6 +180,7 @@ class EmbodiedAgent:
         self._camera: CameraTool | None = None
         self._mobility: MobilityTool | None = None
         self._tts: TTSTool | None = None
+        self._web_tool = WebTool()
         self._memory = ObservationMemory()
         self._memory_tool = MemoryTool(self._memory)
         self._tom_tool = ToMTool(self._memory, default_person=config.companion_name)
@@ -186,7 +189,8 @@ class EmbodiedAgent:
 
     def _init_tools(self) -> None:
         cam = self.config.camera
-        if cam.host and cam.password:
+        # Allow camera if host is present, even without password (e.g. local RTSP)
+        if cam.host:
             self._camera = CameraTool(cam.host, cam.username, cam.password, cam.port)
 
         mob = self.config.mobility
@@ -210,6 +214,7 @@ class EmbodiedAgent:
             defs.extend(self._mobility.get_tool_definitions())
         if self._tts:
             defs.extend(self._tts.get_tool_definitions())
+        defs.extend(self._web_tool.get_tool_definitions())
         defs.extend(self._memory_tool.get_tool_definitions())
         defs.extend(self._tom_tool.get_tool_definitions())
         return defs
@@ -220,6 +225,7 @@ class EmbodiedAgent:
         mobility_tools = {"walk"}
         tts_tools = {"say"}
         memory_tools = {"remember", "recall"}
+        web_tools = {"search", "fetch"}
 
         if name in camera_tools and self._camera:
             return await self._camera.call(name, tool_input)
@@ -227,6 +233,8 @@ class EmbodiedAgent:
             return await self._mobility.call(name, tool_input)
         elif name in tts_tools and self._tts:
             return await self._tts.call(name, tool_input)
+        elif name in web_tools:
+            return await self._web_tool.call(name, tool_input)
         elif name in memory_tools:
             return await self._memory_tool.call(name, tool_input)
         elif name == "tom":
@@ -296,7 +304,7 @@ class EmbodiedAgent:
     async def _morning_reconstruction(self, desires=None) -> str:
         """Build a 'yesterday → today' bridge from stored memories.
 
-        Damasio's autobiographical self coming online: reading the past
+        Damasio' autobiographical self coming online: reading the past
         to know who we are now. Called only on the first turn of a session.
         """
         self_model, curiosities, feelings = await asyncio.gather(
