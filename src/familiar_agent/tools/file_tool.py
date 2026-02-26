@@ -9,8 +9,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Base directory for AI operations - ensures safety
-WORKSPACE_DIR = Path.cwd() / "workspace"
+# Default base directory for AI operations
+DEFAULT_WORKSPACE_DIR = Path.cwd() / "workspace"
 # Disallowed filenames/patterns to protect secrets and system integrity
 DENYLIST = {
     ".env", "ME.md", ".git", ".venv", "__pycache__", 
@@ -20,8 +20,14 @@ DENYLIST = {
 class FileTool:
     """Provides safe file I/O within a restricted workspace directory."""
 
-    def __init__(self, base_dir: Path | str = WORKSPACE_DIR):
-        self.base_dir = Path(base_dir).resolve()
+    def __init__(self, base_dir: Path | str | None = None):
+        if base_dir is None:
+            # Fallback to env var or default
+            env_dir = os.environ.get("FAMILIAR_WORKSPACE")
+            self.base_dir = Path(env_dir).resolve() if env_dir else DEFAULT_WORKSPACE_DIR.resolve()
+        else:
+            self.base_dir = Path(base_dir).resolve()
+            
         self.base_dir.mkdir(parents=True, exist_ok=True)
         logger.info("FileTool initialized. Workspace: %s", self.base_dir)
 
@@ -55,8 +61,7 @@ class FileTool:
             items = os.listdir(target)
             if not items:
                 return "Directory is empty."
-            return "
-".join(f"- {item}" for item in items if item not in DENYLIST)
+            return "\n".join(f"- {item}" for item in items if item not in DENYLIST)
         except Exception as e:
             return f"Error listing files: {e}"
 
@@ -71,13 +76,11 @@ class FileTool:
             with target.open("r", encoding="utf-8", errors="replace") as f:
                 for i, line in enumerate(f):
                     if i >= max_lines:
-                        lines.append(f"
---- [Truncated: File is longer than {max_lines} lines] ---")
+                        lines.append("\n--- [Truncated: File is longer than " + str(max_lines) + " lines] ---")
                         break
                     lines.append(line.rstrip())
             
-            content = "
-".join(lines)
+            content = "\n".join(lines)
             return content if content else "(Empty file)"
         except Exception as e:
             return f"Error reading file: {e}"
