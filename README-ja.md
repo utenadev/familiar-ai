@@ -181,17 +181,47 @@ API_KEY=sk-...
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # オプション、省略時はデフォルト音声を使用
    ```
-3. 音声はgo2rtc経由でカメラのスピーカーから再生されます（初回実行時に自動ダウンロード）
 
-**ローカル音声再生**（カメラスピーカー未設定時のフォールバック）には **mpv** または **ffplay** が必要です。mpv推奨：
+音声の再生先は2通りあります：
+
+#### A) カメラのスピーカーから再生（go2rtc 経由）
+
+カメラ内蔵スピーカーから声を出したい場合は [go2rtc](https://github.com/AlexxIT/go2rtc/releases) のセットアップが必要です。
+
+1. [リリースページ](https://github.com/AlexxIT/go2rtc/releases) からバイナリをダウンロード：
+   - Linux/macOS: `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows: `go2rtc_win64.exe`**
+
+2. 以下の場所に配置・リネーム：
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc       # chmod +x が必要
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. 同じディレクトリに `go2rtc.yaml` を作成：
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+   ※ `YOUR_CAM_USER` / `YOUR_CAM_PASS` は Tapoアプリで作成したローカルアカウント。`YOUR_CAM_IP` はカメラのIPアドレス。
+
+4. familiar-ai 起動時に go2rtc が自動起動します。カメラが双方向音声（バックチャンネル）に対応していれば、カメラのスピーカーから声が出ます。
+
+#### B) PCのスピーカーから再生（フォールバック）
+
+go2rtc が未設定、またはカメラがバックチャンネル非対応の場合、**mpv** または **ffplay** でPCから再生します。
 
 | OS | インストール方法 |
 |----|----------------|
 | macOS | `brew install mpv` |
 | Ubuntu / Debian | `sudo apt install mpv` |
-| Windows | [mpv.io/installation](https://mpv.io/installation/) からダウンロードしてPATHに追加、**または** ffmpegをインストール：`winget install ffmpeg` |
+| Windows | [mpv.io/installation](https://mpv.io/installation/) からダウンロードしてPATHに追加、**または** `winget install ffmpeg` |
 
-> mpv・ffplayがない場合でも音声生成自体は動作します。カメラスピーカー経由（go2rtc）の再生には影響しません。
+> go2rtc・mpv・ffplay がいずれも未設定でも、音声生成自体（ElevenLabs API呼び出し）は動作します。再生がスキップされるだけです。
 
 ---
 

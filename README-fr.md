@@ -178,17 +178,45 @@ Lancez `./run.sh` et commencez à discuter. Ajoutez du matériel au fur et à me
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # optionnel, utilise la voix par défaut si omis
    ```
-3. La voix joue via le haut-parleur intégré de la caméra via go2rtc (téléchargé automatiquement au premier lancement)
+Il y a deux destinations de lecture :
 
-**La lecture audio locale** (utilisée en repli ou sans haut-parleur caméra) nécessite **mpv** ou **ffplay**. mpv est recommandé :
+#### A) Haut-parleur de la caméra (via go2rtc)
+
+Pour diffuser l'audio via le haut-parleur intégré de la caméra, installez [go2rtc](https://github.com/AlexxIT/go2rtc/releases) manuellement :
+
+1. Téléchargez le binaire depuis la [page des releases](https://github.com/AlexxIT/go2rtc/releases) :
+   - Linux/macOS : `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows : `go2rtc_win64.exe`**
+
+2. Placez et renommez-le :
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc          # chmod +x requis
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. Créez `go2rtc.yaml` dans le même répertoire :
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+
+4. familiar-ai démarre go2rtc automatiquement. Si la caméra supporte l'audio bidirectionnel, la voix sort du haut-parleur de la caméra.
+
+#### B) Haut-parleur PC local (repli)
+
+Sans go2rtc ou si la caméra ne supporte pas le backchannel audio, familiar-ai utilise **mpv** ou **ffplay** :
 
 | OS | Installation |
 |----|-------------|
 | macOS | `brew install mpv` |
 | Ubuntu / Debian | `sudo apt install mpv` |
-| Windows | [mpv.io/installation](https://mpv.io/installation/) — télécharger et ajouter au PATH, **ou** installer ffmpeg : `winget install ffmpeg` |
+| Windows | [mpv.io/installation](https://mpv.io/installation/) — télécharger et ajouter au PATH, **ou** `winget install ffmpeg` |
 
-> Sans mpv ni ffplay, familiar-ai peut générer la parole mais ne peut pas la lire localement. La lecture via le haut-parleur de la caméra (go2rtc) n'est pas affectée.
+> Sans go2rtc ni lecteur local, la génération vocale (appel API ElevenLabs) fonctionne toujours — la lecture est simplement ignorée.
 
 ---
 
