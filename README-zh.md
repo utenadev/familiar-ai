@@ -46,7 +46,22 @@ Familiar AI 运行一个由你选择的大语言模型驱动的 [ReAct](https://
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. 克隆并安装
+### 2. 安装 ffmpeg
+
+ffmpeg是**必须**的，用于摄像头图像捕获和音频播放。
+
+| OS | 命令 |
+|----|------|
+| macOS | `brew install ffmpeg` |
+| Ubuntu / Debian | `sudo apt install ffmpeg` |
+| Fedora / RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
+| Windows | `winget install ffmpeg` — 或从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载并添加到 PATH |
+| Raspberry Pi | `sudo apt install ffmpeg` |
+
+验证：`ffmpeg -version`
+
+### 3. 克隆并安装
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -54,7 +69,7 @@ cd familiar-ai
 uv sync
 ```
 
-### 3. 配置
+### 4. 配置
 
 ```bash
 cp .env.example .env
@@ -78,14 +93,14 @@ cp .env.example .env
 | `CAMERA_USER` / `CAMERA_PASS` | 摄像头凭证 |
 | `ELEVENLABS_API_KEY` | 用于语音输出 — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. 创建你的伙伴
+### 5. 创建你的伙伴
 
 ```bash
 cp persona-template/en.md ME.md
 # 编辑 ME.md — 给它起名字，定义性格
 ```
 
-### 5. 运行
+### 6. 运行
 
 ```bash
 ./run.sh             # 文本 UI（推荐）
