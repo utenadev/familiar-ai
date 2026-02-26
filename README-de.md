@@ -46,7 +46,22 @@ Im Leerlauf handelt es nach seinen eigenen Wünschen: Neugier, den Wunsch nach d
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. Klone und installiere
+### 2. Installiere ffmpeg
+
+ffmpeg ist **erforderlich** für die Kamerabilderfassung und Audiowiedergabe.
+
+| OS | Befehl |
+|----|--------|
+| macOS | `brew install ffmpeg` |
+| Ubuntu / Debian | `sudo apt install ffmpeg` |
+| Fedora / RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
+| Windows | `winget install ffmpeg` — oder von [ffmpeg.org](https://ffmpeg.org/download.html) herunterladen und zu PATH hinzufügen |
+| Raspberry Pi | `sudo apt install ffmpeg` |
+
+Überprüfen: `ffmpeg -version`
+
+### 3. Klone und installiere
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -54,7 +69,7 @@ cd familiar-ai
 uv sync
 ```
 
-### 3. Konfiguriere
+### 4. Konfiguriere
 
 ```bash
 cp .env.example .env
@@ -78,14 +93,14 @@ cp .env.example .env
 | `CAMERA_USER` / `CAMERA_PASS` | Anmeldedaten der Kamera |
 | `ELEVENLABS_API_KEY` | Für Sprachausgabe — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. Erstelle deinen Familiar
+### 5. Erstelle deinen Familiar
 
 ```bash
 cp persona-template/en.md ME.md
 # Bearbeite ME.md — gib ihm einen Namen und eine Persönlichkeit
 ```
 
-### 5. Starten
+### 6. Starten
 
 ```bash
 ./run.sh             # Textuelle TUI (empfohlen)

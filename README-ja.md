@@ -49,7 +49,22 @@ user input
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. クローンしてインストール
+### 2. ffmpeg をインストール
+
+ffmpegは**必須**です。カメラ画像のキャプチャと音声再生に使用します。
+
+| OS | コマンド |
+|----|---------|
+| macOS | `brew install ffmpeg` |
+| Ubuntu / Debian | `sudo apt install ffmpeg` |
+| Fedora / RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
+| Windows | `winget install ffmpeg` — または [ffmpeg.org](https://ffmpeg.org/download.html) からダウンロードしてPATHに追加 |
+| Raspberry Pi | `sudo apt install ffmpeg` |
+
+確認: `ffmpeg -version`
+
+### 3. クローンしてインストール
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -57,12 +72,13 @@ cd familiar-ai
 uv sync
 ```
 
-### 3. 設定
+### 4. 設定
 
 ```bash
 cp .env.example .env
 # .env を編集して設定を入力
 ```
+
 
 **必須項目：**
 
@@ -81,14 +97,14 @@ cp .env.example .env
 | `CAMERA_USER` / `CAMERA_PASS` | カメラの認証情報 |
 | `ELEVENLABS_API_KEY` | 音声出力用 — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. familiarを作る
+### 5. familiarを作る
 
 ```bash
 cp persona-template/en.md ME.md
 # ME.md を編集して、名前と性格を設定
 ```
 
-### 5. 実行
+### 6. 実行
 
 ```bash
 ./run.sh             # Textual TUI（推奨）
