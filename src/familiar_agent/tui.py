@@ -43,6 +43,10 @@ CSS = """
     color: $text;
 }
 
+#stream.thinking {
+    color: $text-muted;
+}
+
 #input-bar {
     dock: bottom;
     height: 3;
@@ -50,6 +54,8 @@ CSS = """
     padding: 0 1;
 }
 """
+
+_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 ACTION_ICONS = {
     "see": "👀",
@@ -178,6 +184,17 @@ class FamiliarApp(App):
                 break
             await self._run_agent(text)
 
+    async def _spinner_loop(self, stream: Static, name_tag: str, stop: asyncio.Event) -> None:
+        """Animate the stream widget with a spinner until stop is set."""
+        stream.add_class("thinking")
+        for i in range(10_000):
+            if stop.is_set():
+                break
+            frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
+            stream.update(f"{name_tag} {frame}")
+            await asyncio.sleep(0.08)
+        stream.remove_class("thinking")
+
     async def _run_agent(self, user_input: str, inner_voice: str = "") -> None:
         self._agent_running = True
         self._current_text_buf = ""
@@ -187,6 +204,21 @@ class FamiliarApp(App):
         text_buf: list[str] = []
 
         name_tag = f"[bold magenta]{self._agent_name} ▶[/bold magenta]"
+
+        # Spinner state — restarted after each tool call
+        stop_spinner = asyncio.Event()
+        spinner_task: asyncio.Task = asyncio.create_task(
+            self._spinner_loop(stream, name_tag, stop_spinner)
+        )
+
+        def _stop_spinner() -> None:
+            stop_spinner.set()
+
+        def _restart_spinner() -> None:
+            nonlocal spinner_task, stop_spinner
+            stop_spinner.set()
+            stop_spinner = asyncio.Event()
+            spinner_task = asyncio.create_task(self._spinner_loop(stream, name_tag, stop_spinner))
 
         def _flush_stream() -> None:
             """Commit streamed text to the log and clear the stream widget."""
@@ -198,11 +230,15 @@ class FamiliarApp(App):
                 stream.update("")
 
         def on_action(name: str, tool_input: dict) -> None:
+            _stop_spinner()
             _flush_stream()
             label = _format_action(name, tool_input)
             log.write(f"[dim]{label}[/dim]")
+            # Restart spinner while waiting for the next LLM response
+            _restart_spinner()
 
         def on_text(chunk: str) -> None:
+            _stop_spinner()
             text_buf.append(chunk)
             stream.update(f"{name_tag} {''.join(text_buf)}")
 
@@ -219,6 +255,8 @@ class FamiliarApp(App):
         except Exception as e:
             self._log(f"[red]エラー: {e}[/red]")
         finally:
+            _stop_spinner()
+            stream.update("")
             self._agent_running = False
 
     async def _desire_tick(self) -> None:
