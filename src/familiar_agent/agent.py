@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -183,6 +184,10 @@ class EmbodiedAgent:
         self._memory_tool = MemoryTool(self._memory)
         self._tom_tool = ToMTool(self._memory, default_person=config.companion_name)
 
+        from .mcp_client import MCPClientManager
+
+        self._mcp: MCPClientManager | None = None
+
         self._init_tools()
 
     def _init_tools(self) -> None:
@@ -203,6 +208,14 @@ class EmbodiedAgent:
                 tts.elevenlabs_api_key, tts.voice_id, tts.go2rtc_url, tts.go2rtc_stream
             )
 
+        from .mcp_client import MCPClientManager, _resolve_config_path
+
+        cfg_path = _resolve_config_path()
+        if cfg_path.exists():
+            self._mcp = MCPClientManager(cfg_path)
+        elif os.environ.get("MCP_CONFIG"):
+            logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
+
     @property
     def _all_tool_defs(self) -> list[dict]:
         defs = []
@@ -214,6 +227,8 @@ class EmbodiedAgent:
             defs.extend(self._tts.get_tool_definitions())
         defs.extend(self._memory_tool.get_tool_definitions())
         defs.extend(self._tom_tool.get_tool_definitions())
+        if self._mcp:
+            defs.extend(self._mcp.get_tool_definitions())
         return defs
 
     async def _execute_tool(self, name: str, tool_input: dict) -> tuple[str, str | None]:
@@ -233,6 +248,8 @@ class EmbodiedAgent:
             return await self._memory_tool.call(name, tool_input)
         elif name == "tom":
             return await self._tom_tool.call(name, tool_input)
+        elif self._mcp:
+            return await self._mcp.call(name, tool_input)
         else:
             return f"Tool '{name}' not available (check configuration).", None
 
@@ -377,6 +394,11 @@ class EmbodiedAgent:
             logger.warning("Curiosity extraction failed: %s", e)
         return None
 
+    async def close(self) -> None:
+        """Clean up resources (MCP connections, etc.). Call on shutdown."""
+        if self._mcp:
+            await self._mcp.stop()
+
     async def run(
         self,
         user_input: str,
@@ -391,6 +413,10 @@ class EmbodiedAgent:
         inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
         """
         self._turn_count += 1
+
+        # Start MCP connections on first turn (lazy, idempotent)
+        if self._mcp and not self._mcp.is_started:
+            await self._mcp.start()
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""
