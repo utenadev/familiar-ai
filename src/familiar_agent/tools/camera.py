@@ -8,6 +8,7 @@ import logging
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ class CameraTool:
         self.username = username
         self.password = password
         self.port = port
-        self._cam = None
-        self._ptz = None
+        self._cam: Any = None
+        self._ptz: Any = None
         self._profile_token: str | None = None
 
     async def _ensure_connected(self) -> bool:
@@ -42,7 +43,9 @@ class CameraTool:
             if not os.path.isdir(wsdl_dir):
                 wsdl_dir = os.path.join(os.path.dirname(onvif_dir), "wsdl")
 
-            logger.debug("Connecting to ONVIF at %s:%d (user=%s)", self.host, self.port, self.username)
+            logger.debug(
+                "Connecting to ONVIF at %s:%d (user=%s)", self.host, self.port, self.username
+            )
             self._cam = ONVIFCamera(
                 self.host,
                 self.port,
@@ -78,10 +81,10 @@ class CameraTool:
             auth = f"{self.username}@"
         else:
             auth = ""
-        
-        # stream_url = f"rtsp://{self.username}:{self.password}@{self.host}:554/stream1"        
+
+        # stream_url = f"rtsp://{self.username}:{self.password}@{self.host}:554/stream1"
         stream_url = f"rtsp://{auth}{self.host}:554/stream1"
-        
+
         # Sanitize URL for logging (hide password)
         log_url = stream_url
         if self.password:
@@ -90,31 +93,41 @@ class CameraTool:
 
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
             tmp_path = f.name
-        
+
         try:
             # ffmpeg command optimized for lightning-fast single frame grab
             cmd = [
                 "ffmpeg",
-                "-rtsp_transport", "tcp",
-                "-probesize", "32",          # Minimize analysis probe size
-                "-analyzeduration", "0",     # Skip stream analysis
-                "-fflags", "nobuffer",
-                "-flags", "low_delay",
-                "-i", stream_url,
-                "-an",                       # No audio
-                "-sn",                       # No subtitles
-                "-vframes", "1",             # Grab 1 frame
-                "-q:v", "3",
-                "-vf", "scale=640:-1",
-                "-y", tmp_path,
+                "-rtsp_transport",
+                "tcp",
+                "-probesize",
+                "32",  # Minimize analysis probe size
+                "-analyzeduration",
+                "0",  # Skip stream analysis
+                "-fflags",
+                "nobuffer",
+                "-flags",
+                "low_delay",
+                "-i",
+                stream_url,
+                "-an",  # No audio
+                "-sn",  # No subtitles
+                "-vframes",
+                "1",  # Grab 1 frame
+                "-q:v",
+                "3",
+                "-vf",
+                "scale=640:-1",
+                "-y",
+                tmp_path,
             ]
-            
+
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            
+
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8.0)
                 if proc.returncode != 0:

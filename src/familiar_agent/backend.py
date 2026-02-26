@@ -9,7 +9,7 @@ import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .config import AgentConfig
@@ -79,9 +79,9 @@ class AnthropicBackend:
         results: list[tuple[str, str | None]],
     ) -> list[dict]:
         """Returns a one-element list containing the Anthropic tool_result user message."""
-        content = []
+        content: list[dict[str, Any]] = []
         for tc, (text, image) in zip(tool_calls, results):
-            result_content: list[dict] = [{"type": "text", "text": text}]
+            result_content: list[dict[str, Any]] = [{"type": "text", "text": text}]
             if image:
                 result_content.append(
                     {
@@ -90,7 +90,8 @@ class AnthropicBackend:
                     }
                 )
             content.append({"type": "tool_result", "tool_use_id": tc.id, "content": result_content})
-        return [{"role": "user", "content": content}]
+        msgs: list[dict[str, Any]] = [{"role": "user", "content": content}]
+        return msgs
 
     # ── API calls ─────────────────────────────────────────────────
 
@@ -116,12 +117,14 @@ class AnthropicBackend:
         on_text: Callable[[str], None] | None,
     ) -> tuple[TurnResult, Any]:
         """Stream one agent turn. Returns (result, raw_content_for_assistant_message)."""
+        from anthropic.types import MessageParam, ToolParam
+
         async with self.client.messages.stream(
             model=self.model,
             max_tokens=max_tokens,
             system=system,
-            tools=self._convert_tools(tools),
-            messages=self._flatten_messages(messages),
+            tools=cast(list[ToolParam], self._convert_tools(tools)),
+            messages=cast(list[MessageParam], self._flatten_messages(messages)),
         ) as stream:
             async for chunk in stream.text_stream:
                 if on_text:
@@ -145,7 +148,10 @@ class AnthropicBackend:
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return resp.content[0].text.strip() if resp.content else ""
+            from anthropic.types import TextBlock
+
+            first = resp.content[0] if resp.content else None
+            return first.text.strip() if isinstance(first, TextBlock) else ""
         except Exception as e:
             logger.warning("complete() failed: %s", e)
             return ""
@@ -189,7 +195,7 @@ class OpenAICompatibleBackend:
         # Tool result messages: text only.
         # Images go in a separate user message — Gemini (and many APIs) reject
         # image_url inside "role: tool" messages.
-        msgs = []
+        msgs: list[dict[str, Any]] = []
         for tc, (text, image) in zip(tool_calls, results):
             msgs.append({"role": "tool", "tool_call_id": tc.id, "content": text})
             if image:
@@ -325,7 +331,7 @@ class OpenAICompatibleBackend:
         flat = self._flatten_messages(augmented_system, messages)
 
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
-        stream = await self.client.chat.completions.create(
+        stream = await self.client.chat.completions.create(  # type: ignore[call-overload]
             model=self.model,
             **{tokens_key: max_tokens},
             messages=flat,
@@ -458,7 +464,7 @@ class OpenAICompatibleBackend:
     async def complete(self, prompt: str, max_tokens: int) -> str:
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         try:
-            resp = await self.client.chat.completions.create(
+            resp = await self.client.chat.completions.create(  # type: ignore[call-overload]
                 model=self.model,
                 **{tokens_key: max_tokens},
                 messages=[{"role": "user", "content": prompt}],
@@ -664,7 +670,7 @@ class GeminiBackend:
     def make_user_message(self, content: str | list) -> dict:
         if isinstance(content, str):
             return {"role": "user", "parts": [{"text": content}]}
-        parts = []
+        parts: list[dict[str, Any]] = []
         for item in content:
             if isinstance(item, str):
                 parts.append({"text": item})
@@ -686,7 +692,7 @@ class GeminiBackend:
         tool_calls: list[ToolCall],
         results: list[tuple[str, str | None]],
     ) -> list[dict]:
-        parts = []
+        parts: list[dict[str, Any]] = []
         for tc, (text, image) in zip(tool_calls, results):
             parts.append({"function_response": {"name": tc.name, "response": {"result": text}}})
             if image:
@@ -739,12 +745,15 @@ class GeminiBackend:
 
         async for chunk in await self._client.aio.models.generate_content_stream(
             model=self.model,
-            contents=contents,
+            contents=contents,  # type: ignore[arg-type]
             config=config,
         ):
             if not chunk.candidates:
                 continue
-            for part in chunk.candidates[0].content.parts:
+            content = chunk.candidates[0].content
+            if content is None or content.parts is None:
+                continue
+            for part in content.parts:
                 raw_parts.append(part)
                 if part.text:
                     text_chunks.append(part.text)
@@ -752,11 +761,13 @@ class GeminiBackend:
                         on_text(part.text)
                 if part.function_call:
                     fc = part.function_call
+                    if fc.name is None:
+                        continue
                     tool_calls.append(
                         ToolCall(
                             id=f"call_{uuid.uuid4().hex[:8]}",
                             name=fc.name,
-                            input=dict(fc.args),
+                            input=dict(fc.args or {}),
                         )
                     )
 
