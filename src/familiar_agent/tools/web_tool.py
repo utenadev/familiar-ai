@@ -26,16 +26,15 @@ class WebTool:
             
             lines = []
             for i, r in enumerate(results, 1):
-                lines.append(f"{i}. {r['title']}")
-                lines.append(f"   URL: {r['href']}")
-                lines.append(f"   Summary: {r['body']}")
+                lines.append(str(i) + ". " + r['title'])
+                lines.append("   URL: " + r['href'])
+                lines.append("   Summary: " + r['body'])
                 lines.append("")
             
-            return "
-".join(lines)
+            return "\n".join(lines)
         except Exception as e:
             logger.error("Search failed: %s", e)
-            return f"Error during web search: {e}"
+            return "Error during web search: " + str(e)
 
     async def fetch(self, url: str, full: bool = False) -> str:
         """Fetch content from a URL."""
@@ -47,7 +46,7 @@ class WebTool:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=15) as resp:
                     if resp.status != 200:
-                        return f"Error: Received HTTP {resp.status} from {url}"
+                        return "Error: Received HTTP " + str(resp.status) + " from " + url
                     html = await resp.text()
 
             # Simple HTML to text conversion
@@ -57,22 +56,18 @@ class WebTool:
             for s in soup(["script", "style", "nav", "footer", "header"]):
                 s.decompose()
             
-            text = soup.get_text(separator="
-")
+            text = soup.get_text(separator="\n")
             # Clean up whitespace
             lines = [l.strip() for l in text.splitlines() if l.strip()]
-            text = "
-".join(lines)
+            text = "\n".join(lines)
 
             if not full and len(text) > self.fetch_limit:
-                return text[:self.fetch_limit] + f"
-
---- [Truncated: Page is longer than {self.fetch_limit} characters. Use full=True if needed] ---"
+                return text[:self.fetch_limit] + "\n\n--- [Truncated: Page is longer than " + str(self.fetch_limit) + " characters. Use full=True if needed] ---"
             
             return text if text else "(No readable text found)"
         except Exception as e:
             logger.error("Fetch failed: %s", e)
-            return f"Error fetching URL: {e}"
+            return "Error fetching URL: " + str(e)
 
     def get_tool_definitions(self) -> list[dict]:
         return [
@@ -112,4 +107,4 @@ class WebTool:
         elif tool_name == "fetch":
             res = await self.fetch(tool_input["url"], tool_input.get("full", False))
             return res, None
-        return f"Unknown tool: {tool_name}", None
+        return "Unknown tool: " + tool_name, None
