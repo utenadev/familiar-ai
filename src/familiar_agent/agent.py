@@ -16,6 +16,7 @@ from .tools.coding import CodingTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .tools.tom import ToMTool
 from .tools.mobility import MobilityTool
+from .tools.stt import STTTool
 from .tools.tts import TTSTool
 from ._i18n import _t
 
@@ -188,6 +189,7 @@ class EmbodiedAgent:
         self._camera: CameraTool | None = None
         self._mobility: MobilityTool | None = None
         self._tts: TTSTool | None = None
+        self._stt: STTTool | None = None
         self._memory = ObservationMemory()
         self._memory_tool = MemoryTool(self._memory)
         self._tom_tool = ToMTool(self._memory, default_person=config.companion_name)
@@ -224,6 +226,14 @@ class EmbodiedAgent:
             self._mcp = MCPClientManager(cfg_path)
         elif os.environ.get("MCP_CONFIG"):
             logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
+
+        stt_cfg = self.config.stt
+        if stt_cfg.elevenlabs_api_key:
+            cam = self.config.camera
+            rtsp_url = (
+                f"rtsp://{cam.username}:{cam.password}@{cam.host}:554/stream1" if cam.host else ""
+            )
+            self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url)
 
     @property
     def _all_tool_defs(self) -> list[dict]:
@@ -625,6 +635,11 @@ class EmbodiedAgent:
             on_text=on_text,
         )
         return result.text or "(max iterations reached)"
+
+    @property
+    def stt(self) -> STTTool | None:
+        """Speech-to-text tool, or None if not configured."""
+        return self._stt
 
     def clear_history(self) -> None:
         """Clear conversation history (start fresh)."""
