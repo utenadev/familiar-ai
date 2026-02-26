@@ -193,6 +193,7 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
         pass
     finally:
         stdin_task.cancel()
+        await agent.close()
         print(f"\n{_t('repl_goodbye')}")
 
 
