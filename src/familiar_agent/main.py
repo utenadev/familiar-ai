@@ -13,6 +13,9 @@ from .config import AgentConfig
 from .desires import DesireSystem
 from ._i18n import BANNER, _t
 
+IDLE_CHECK_INTERVAL = 10.0  # seconds between desire checks when idle
+DESIRE_COOLDOWN = 90.0  # seconds after last user interaction before desires can fire
+
 
 def setup_logging(debug: bool = False) -> None:
     """Setup basic logging to a file ONLY (to keep the screen clean)."""
