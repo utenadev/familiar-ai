@@ -70,13 +70,17 @@ _SLASH_COMMANDS: list[tuple[str, str]] = [
 
 
 def _slash_candidates(state: TargetState) -> list[DropdownItem]:
-    """Return matching commands only when input starts with '/'."""
-    text = state.text
+    """Return matching commands only when input starts with '/'.
+
+    Uses text up to cursor position so that the library's search_string and
+    our own prefix-filter stay in sync.  Each item's .value is the bare
+    command string so that selecting from the dropdown inserts only the
+    command, not the description.
+    """
+    text = state.text[: state.cursor_position]
     if not text.startswith("/"):
         return []
-    return [
-        DropdownItem(main=cmd, prefix=desc) for cmd, desc in _SLASH_COMMANDS if cmd.startswith(text)
-    ]
+    return [DropdownItem(main=cmd) for cmd, _desc in _SLASH_COMMANDS if cmd.startswith(text)]
 
 
 ACTION_ICONS = {
@@ -146,7 +150,7 @@ class FamiliarApp(App):
             placeholder=_t("input_placeholder"),
             id="input-bar",
         )
-        yield AutoComplete("input-bar", candidates=_slash_candidates)
+        yield AutoComplete("#input-bar", candidates=_slash_candidates)
         yield Footer()
 
     def on_mount(self) -> None:

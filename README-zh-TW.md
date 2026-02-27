@@ -121,6 +121,7 @@ cp persona-template/en.md ME.md
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI 相容（Ollama、vllm 等） | `openai` + `BASE_URL=` | — | — |
 | OpenRouter.ai（多供應商） | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLI 工具**（claude -p、ollama 等） | `cli` | （指令） | — |
 
 **Kimi K2.5 `.env` 範例：**
 ```env
@@ -147,6 +148,43 @@ AGENT_NAME=Yukine
 ```
 
 > **注意：** 要停用本地/NVIDIA 模型，請勿將 `BASE_URL` 設定為本地端點如 `http://localhost:11434/v1`。請使用雲端服務提供商。
+
+**CLI 工具 `.env` 範例：**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI（https://llm.datasette.io）— {} = 提示詞參數
+# MODEL=ollama run gemma3:27b  # Ollama — 無 {}，提示詞透過 stdin 傳入
+```
+
+---
+
+## MCP 伺服器
+
+familiar-ai 可以連接任何 [MCP（模型情境協定）](https://modelcontextprotocol.io) 伺服器，從而接入外部記憶、檔案系統存取、網路搜尋等各種工具。
+
+在 `~/.familiar-ai.json` 中設定伺服器（與 Claude Code 格式相同）：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+支援兩種傳輸類型：
+- **`stdio`**：啟動本地子程序（`command` + `args`）
+- **`sse`**：連接 HTTP+SSE 伺服器（`url`）
+
+透過 `MCP_CONFIG=/path/to/config.json` 可覆蓋設定檔路徑。
 
 ---
 

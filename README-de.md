@@ -121,6 +121,7 @@ cp persona-template/en.md ME.md
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI-kompatibel (Ollama, vllm…) | `openai` + `BASE_URL=` | — | — |
 | OpenRouter.ai (Mehrfachanbieter) | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLI-Tool** (llm, ollama…) | `cli` | (der Befehl) | — |
 
 **Kimi K2.5 `.env` Beispiel:**
 ```env
@@ -147,6 +148,43 @@ AGENT_NAME=Yukine
 ```
 
 > **Hinweis:** Um lokale/NVIDIA-Modelle zu deaktivieren, setzen Sie `BASE_URL` nicht auf einen lokalen Endpunkt wie `http://localhost:11434/v1`. Verwenden Sie stattdessen Cloud-Anbieter.
+
+**CLI-Tool `.env` Beispiel:**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI (https://llm.datasette.io) — {} = Prompt-Argument
+# MODEL=ollama run gemma3:27b  # Ollama — ohne {}, Prompt via stdin
+```
+
+---
+
+## MCP-Server
+
+familiar-ai kann sich mit jedem [MCP (Model Context Protocol)](https://modelcontextprotocol.io) Server verbinden und so externe Speicher, Dateizugriff, Websuche und weitere Tools einbinden.
+
+Konfigurieren Sie Server in `~/.familiar-ai.json` (gleiches Format wie Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+Zwei Transporttypen werden unterstützt:
+- **`stdio`**: startet einen lokalen Unterprozess (`command` + `args`)
+- **`sse`**: verbindet sich mit einem HTTP+SSE-Server (`url`)
+
+Überschreiben Sie den Pfad der Konfigurationsdatei mit `MCP_CONFIG=/path/to/config.json`.
 
 ---
 

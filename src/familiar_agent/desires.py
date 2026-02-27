@@ -18,9 +18,9 @@ DEFAULT_DESIRES = {
 
 # How fast each desire grows per second of inactivity
 GROWTH_RATES = {
-    "look_around": 0.012,  # reaches 0.6 after ~40 sec
-    "explore": 0.005,  # reaches 0.6 after ~2 min
-    "greet_companion": 0.0,
+    "look_around": 0.005,  # reaches 0.6 after ~2 min (was 40sec — too eager, caused spam)
+    "explore": 0.008,  # reaches 0.6 after ~75 sec — explore should fire more often
+    "greet_companion": 0.002,  # slow build; fires after ~5 min of silence
     "rest": 0.0,
 }
 
@@ -105,13 +105,18 @@ class DesireSystem:
         prompts = {
             "look_around": (
                 "（内部衝動）なんか外が気になってきた。"
-                "see()で実際に見て、目に入ったものをぽつっとひと言つぶやく。"
-                "look()だけじゃなく必ずsee()を呼ぶこと。"
+                "see()で見てみる。"
+                "カメラが繋がらなかったら、1回だけ別の方向を試して、それでもダメなら諦めて記憶を振り返るか別のことをする。"
+                "何度も同じことを繰り返さない。"
             ),
             "explore": (
-                "（内部衝動）なんか体を動かしたい気分。walk()で少し移動してから、see()で確認してみよう。"
+                "（内部衝動）ちょっとうろうろしたい。walk()で移動してから、see()で今いる場所を確認する。"
+                "カメラが繋がらなくても、移動したこと自体を楽しめる。"
             ),
-            "greet_companion": "（内部衝動）誰かいる気配がする。声かけてみよかな。",
-            "rest": "（内部衝動）ちょっとひと休み。",
+            "greet_companion": (
+                "（内部衝動）コウタに声かけたくなってきた。say()で短く一言。"
+                "今の時間帯に合った言葉で。"
+            ),
+            "rest": "（内部衝動）ちょっとひと休み。何もしないで、ただそこにいる。",
         }
         return prompts.get(name)

@@ -126,6 +126,7 @@ cp persona-template/en.md ME.md
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI-compatible (Ollama, vllm…) | `openai` + `BASE_URL=` | — | — |
 | OpenRouter.ai (multi-provider) | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLI tool** (claude -p, ollama…) | `cli` | (the command) | — |
 
 **Kimi K2.5 `.env` example:**
 ```env
@@ -152,6 +153,43 @@ AGENT_NAME=Yukine
 ```
 
 > **Note:** To disable local/NVIDIA models, simply don't set `BASE_URL` to a local endpoint like `http://localhost:11434/v1`. Use cloud providers instead.
+
+**CLI tool `.env` example:**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI (https://llm.datasette.io) — {} = prompt arg
+# MODEL=ollama run gemma3:27b  # Ollama — no {}, prompt goes via stdin
+```
+
+---
+
+## MCP Servers
+
+familiar-ai can connect to any [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets you plug in external memory, filesystem access, web search, or any other tool.
+
+Configure servers in `~/.familiar-ai.json` (same format as Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+Two transport types are supported:
+- **`stdio`**: launch a local subprocess (`command` + `args`)
+- **`sse`**: connect to an HTTP+SSE server (`url`)
+
+Override the config file location with `MCP_CONFIG=/path/to/config.json`.
 
 ---
 
@@ -283,6 +321,29 @@ Make sure `ELEVENLABS_API_KEY` is set. Without it, voice is disabled and the age
 ## Technical background
 
 Curious about how it works? See [docs/technical.md](./docs/technical.md) for the research and design decisions behind familiar-ai — ReAct, SayCan, Reflexion, Voyager, the desire system, and more.
+
+---
+
+## Contributing
+
+familiar-ai is an open experiment. If any of this resonates with you — technically or philosophically — contributions are very welcome.
+
+**Good places to start:**
+
+| Area | What's needed |
+|------|---------------|
+| New hardware | Support for more cameras (RTSP, IP Webcam), microphones, actuators |
+| New tools | Web search, home automation, calendar, anything via MCP |
+| New backends | Any LLM or local model that fits the `stream_turn` interface |
+| Persona templates | ME.md templates for different languages and personalities |
+| Research | Better desire models, memory retrieval, theory-of-mind prompting |
+| Documentation | Tutorials, walkthroughs, translations |
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup, code style, and PR guidelines.
+
+If you're unsure where to start, [open an issue](https://github.com/lifemate-ai/familiar-ai/issues) — happy to point you in the right direction.
+
+---
 
 ## License
 
