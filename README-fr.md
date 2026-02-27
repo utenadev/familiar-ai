@@ -121,6 +121,7 @@ cp persona-template/en.md ME.md
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | Compatible OpenAI (Ollama, vllm…) | `openai` + `BASE_URL=` | — | — |
 | OpenRouter.ai (multi-fournisseurs) | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **Outil CLI** (llm, ollama…) | `cli` | (la commande) | — |
 
 **Exemple `.env` pour Kimi K2.5 :**
 ```env
@@ -147,6 +148,43 @@ AGENT_NAME=Yukine
 ```
 
 > **Note :** Pour désactiver les modèles locaux/NVIDIA, ne définissez pas `BASE_URL` sur un endpoint local comme `http://localhost:11434/v1`. Utilisez plutôt des fournisseurs cloud.
+
+**Exemple `.env` pour outil CLI :**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI (https://llm.datasette.io) — {} = arg du prompt
+# MODEL=ollama run gemma3:27b  # Ollama — sans {}, prompt via stdin
+```
+
+---
+
+## Serveurs MCP
+
+familiar-ai peut se connecter à n'importe quel serveur [MCP (Model Context Protocol)](https://modelcontextprotocol.io) pour accéder à la mémoire externe, aux fichiers, à la recherche web, etc.
+
+Configurez les serveurs dans `~/.familiar-ai.json` (même format que Claude Code) :
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+Deux types de transport sont supportés :
+- **`stdio`** : lance un sous-processus local (`command` + `args`)
+- **`sse`** : se connecte à un serveur HTTP+SSE (`url`)
+
+Remplacez le chemin du fichier de config avec `MCP_CONFIG=/path/to/config.json`.
 
 ---
 

@@ -125,6 +125,7 @@ cp persona-template/en.md ME.md
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI互換（Ollama、vllmなど） | `openai` + `BASE_URL=` | — | — |
 | OpenRouter.ai（マルチプロバイダー） | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLIツール**（claude -p、ollamaなど） | `cli` | （コマンド） | — |
 
 **Kimi K2.5 `.env` の例：**
 ```env
@@ -151,6 +152,43 @@ AGENT_NAME=ユキネ
 ```
 
 > **注意：** ローカル/NVIDIAモデルを無効化するには、`BASE_URL` を `http://localhost:11434/v1` のようなローカルエンドポイントに設定しないでください。クラウドプロバイダーを使用してください。
+
+**CLIツールの `.env` 例：**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI（https://llm.datasette.io）— {} = プロンプト引数
+# MODEL=ollama run gemma3:27b  # Ollama — {} なし、stdinでプロンプトを渡す
+```
+
+---
+
+## MCPサーバー
+
+familiar-ai は任意の [MCP（Model Context Protocol）](https://modelcontextprotocol.io) サーバーに接続できます。外部メモリ、ファイルシステムアクセス、Web検索など、あらゆるツールを追加できます。
+
+`~/.familiar-ai.json` にサーバーを設定します（Claude Codeと同じ形式）：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+サポートしているトランスポートタイプ：
+- **`stdio`**: ローカルサブプロセスを起動（`command` + `args`）
+- **`sse`**: HTTP+SSEサーバーに接続（`url`）
+
+設定ファイルの場所は `MCP_CONFIG=/path/to/config.json` で変更できます。
 
 ---
 
