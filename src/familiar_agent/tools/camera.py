@@ -82,8 +82,10 @@ class CameraTool:
         else:
             auth = ""
 
-        # stream_url = f"rtsp://{self.username}:{self.password}@{self.host}:554/stream1"
-        stream_url = f"rtsp://{auth}{self.host}:554/stream1"
+        if "://" in self.host:
+            stream_url = self.host
+        else:
+            stream_url = f"rtsp://{auth}{self.host}:554/stream1"
 
         # Sanitize URL for logging (hide password)
         log_url = stream_url
