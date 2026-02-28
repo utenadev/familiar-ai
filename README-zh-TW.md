@@ -46,7 +46,22 @@ Familiar AI 執行一個由你選擇的大型語言模型驅動的 [ReAct](https
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. 複製並安裝
+### 2. 安裝 ffmpeg
+
+ffmpeg是**必要**的，用於相機圖像擷取和音訊播放。
+
+| OS | 指令 |
+|----|------|
+| macOS | `brew install ffmpeg` |
+| Ubuntu / Debian | `sudo apt install ffmpeg` |
+| Fedora / RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
+| Windows | `winget install ffmpeg` — 或從 [ffmpeg.org](https://ffmpeg.org/download.html) 下載並加入 PATH |
+| Raspberry Pi | `sudo apt install ffmpeg` |
+
+驗證：`ffmpeg -version`
+
+### 3. 複製並安裝
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -54,7 +69,7 @@ cd familiar-ai
 uv sync
 ```
 
-### 3. 設定
+### 4. 設定
 
 ```bash
 cp .env.example .env
@@ -78,14 +93,14 @@ cp .env.example .env
 | `CAMERA_USER` / `CAMERA_PASS` | 攝影機憑證 |
 | `ELEVENLABS_API_KEY` | 用於語音輸出 — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. 建立你的夥伴
+### 5. 建立你的夥伴
 
 ```bash
 cp persona-template/en.md ME.md
 # 編輯 ME.md — 給它取名字，定義個性
 ```
 
-### 5. 執行
+### 6. 執行
 
 ```bash
 ./run.sh             # 文字 UI（推薦）
@@ -105,6 +120,8 @@ cp persona-template/en.md ME.md
 | Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI 相容（Ollama、vllm 等） | `openai` + `BASE_URL=` | — | — |
+| OpenRouter.ai（多供應商） | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLI 工具**（claude -p、ollama 等） | `cli` | （指令） | — |
 
 **Kimi K2.5 `.env` 範例：**
 ```env
@@ -112,6 +129,62 @@ PLATFORM=kimi
 API_KEY=sk-...   # 來自 platform.moonshot.ai
 AGENT_NAME=Yukine
 ```
+
+**Google Gemini `.env` 範例：**
+```env
+PLATFORM=gemini
+API_KEY=AIza...   # 來自 aistudio.google.com
+MODEL=gemini-2.5-flash  # 或 gemini-2.5-pro
+AGENT_NAME=Yukine
+```
+
+**OpenRouter.ai `.env` 範例：**
+```env
+PLATFORM=openai
+BASE_URL=https://openrouter.ai/api/v1
+API_KEY=sk-or-...   # 來自 openrouter.ai
+MODEL=mistralai/mistral-7b-instruct  # 可選
+AGENT_NAME=Yukine
+```
+
+> **注意：** 要停用本地/NVIDIA 模型，請勿將 `BASE_URL` 設定為本地端點如 `http://localhost:11434/v1`。請使用雲端服務提供商。
+
+**CLI 工具 `.env` 範例：**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI（https://llm.datasette.io）— {} = 提示詞參數
+# MODEL=ollama run gemma3:27b  # Ollama — 無 {}，提示詞透過 stdin 傳入
+```
+
+---
+
+## MCP 伺服器
+
+familiar-ai 可以連接任何 [MCP（模型情境協定）](https://modelcontextprotocol.io) 伺服器，從而接入外部記憶、檔案系統存取、網路搜尋等各種工具。
+
+在 `~/.familiar-ai.json` 中設定伺服器（與 Claude Code 格式相同）：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+支援兩種傳輸類型：
+- **`stdio`**：啟動本地子程序（`command` + `args`）
+- **`sse`**：連接 HTTP+SSE 伺服器（`url`）
+
+透過 `MCP_CONFIG=/path/to/config.json` 可覆蓋設定檔路徑。
 
 ---
 
@@ -158,7 +231,45 @@ API_KEY=sk-...
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # 可選，省略則使用預設聲音
    ```
-3. 語音透過 go2rtc（首次執行時自動下載）透過攝影機內建喇叭播放
+音訊有兩種播放方式：
+
+#### A) 攝影機喇叭（透過 go2rtc）
+
+若要透過攝影機內建喇叭播放，需手動安裝 [go2rtc](https://github.com/AlexxIT/go2rtc/releases)：
+
+1. 從[發布頁面](https://github.com/AlexxIT/go2rtc/releases)下載二進位檔：
+   - Linux/macOS：`go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows：`go2rtc_win64.exe`**
+
+2. 放置並重新命名到以下路徑：
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc          # 需要 chmod +x
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. 在同一目錄下建立 `go2rtc.yaml`：
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+
+4. familiar-ai 啟動時會自動啟動 go2rtc。若攝影機支援雙向音訊，聲音將從攝影機喇叭輸出。
+
+#### B) 本機 PC 喇叭（備用方案）
+
+未設定 go2rtc 或攝影機不支援雙向音訊時，回退至 **mpv** 或 **ffplay**：
+
+| 作業系統 | 安裝方式 |
+|---------|---------|
+| macOS | `brew install mpv` |
+| Ubuntu / Debian | `sudo apt install mpv` |
+| Windows | 從 [mpv.io/installation](https://mpv.io/installation/) 下載並加入 PATH，**或** `winget install ffmpeg` |
+
+> 即使沒有 go2rtc 或本機播放器，語音生成本身（ElevenLabs API 呼叫）仍可正常運作，只是不會播放。
 
 ---
 

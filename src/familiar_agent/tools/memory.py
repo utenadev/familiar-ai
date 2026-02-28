@@ -59,7 +59,7 @@ def _encode_image(image_path: str) -> str | None:
         from PIL import Image
 
         with Image.open(image_path) as img:
-            img.thumbnail(_THUMB_SIZE, Image.LANCZOS)
+            img.thumbnail(_THUMB_SIZE, Image.Resampling.LANCZOS)
             buf = io.BytesIO()
             img.convert("RGB").save(buf, format="JPEG", quality=60)
             return base64.b64encode(buf.getvalue()).decode()

@@ -51,7 +51,22 @@ When idle, it acts on its own desires: curiosity, wanting to look outside, missi
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. Clone and install
+### 2. Install ffmpeg
+
+ffmpeg is **required** for camera image capture and audio playback.
+
+| OS | Command |
+|----|---------|
+| macOS | `brew install ffmpeg` |
+| Ubuntu / Debian | `sudo apt install ffmpeg` |
+| Fedora / RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
+| Windows | `winget install ffmpeg` — or download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH |
+| Raspberry Pi | `sudo apt install ffmpeg` |
+
+Verify: `ffmpeg -version`
+
+### 3. Clone and install
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -59,7 +74,7 @@ cd familiar-ai
 uv sync
 ```
 
-### 3. Configure
+### 4. Configure
 
 ```bash
 cp .env.example .env
@@ -83,14 +98,14 @@ cp .env.example .env
 | `CAMERA_USER` / `CAMERA_PASS` | Camera credentials |
 | `ELEVENLABS_API_KEY` | For voice output — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. Create your familiar
+### 5. Create your familiar
 
 ```bash
 cp persona-template/en.md ME.md
 # Edit ME.md — give it a name and personality
 ```
 
-### 5. Run
+### 6. Run
 
 ```bash
 ./run.sh             # Textual TUI (recommended)
@@ -110,6 +125,8 @@ cp persona-template/en.md ME.md
 | Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI-compatible (Ollama, vllm…) | `openai` + `BASE_URL=` | — | — |
+| OpenRouter.ai (multi-provider) | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLI tool** (claude -p, ollama…) | `cli` | (the command) | — |
 
 **Kimi K2.5 `.env` example:**
 ```env
@@ -117,6 +134,62 @@ PLATFORM=kimi
 API_KEY=sk-...   # from platform.moonshot.ai
 AGENT_NAME=Yukine
 ```
+
+**Google Gemini `.env` example:**
+```env
+PLATFORM=gemini
+API_KEY=AIza...   # from aistudio.google.com
+MODEL=gemini-2.5-flash  # or gemini-2.5-pro for higher capability
+AGENT_NAME=Yukine
+```
+
+**OpenRouter.ai `.env` example:**
+```env
+PLATFORM=openai
+BASE_URL=https://openrouter.ai/api/v1
+API_KEY=sk-or-...   # from openrouter.ai
+MODEL=mistralai/mistral-7b-instruct  # optional: specify model
+AGENT_NAME=Yukine
+```
+
+> **Note:** To disable local/NVIDIA models, simply don't set `BASE_URL` to a local endpoint like `http://localhost:11434/v1`. Use cloud providers instead.
+
+**CLI tool `.env` example:**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI (https://llm.datasette.io) — {} = prompt arg
+# MODEL=ollama run gemma3:27b  # Ollama — no {}, prompt goes via stdin
+```
+
+---
+
+## MCP Servers
+
+familiar-ai can connect to any [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server. This lets you plug in external memory, filesystem access, web search, or any other tool.
+
+Configure servers in `~/.familiar-ai.json` (same format as Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+Two transport types are supported:
+- **`stdio`**: launch a local subprocess (`command` + `args`)
+- **`sse`**: connect to an HTTP+SSE server (`url`)
+
+Override the config file location with `MCP_CONFIG=/path/to/config.json`.
 
 ---
 
@@ -163,7 +236,47 @@ Run `./run.sh` and start chatting. Add hardware as you go.
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # optional, uses default voice if omitted
    ```
-3. Voice plays through the camera's built-in speaker via go2rtc (auto-downloaded on first run)
+
+There are two playback destinations:
+
+#### A) Camera speaker (via go2rtc)
+
+To play audio through the camera's built-in speaker, set up [go2rtc](https://github.com/AlexxIT/go2rtc/releases) manually:
+
+1. Download the binary from the [releases page](https://github.com/AlexxIT/go2rtc/releases):
+   - Linux/macOS: `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows: `go2rtc_win64.exe`**
+
+2. Place and rename it:
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc          # chmod +x required
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. Create `go2rtc.yaml` in the same directory:
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+   Use the local camera account credentials (not your TP-Link cloud account).
+
+4. familiar-ai starts go2rtc automatically at launch. If your camera supports two-way audio (backchannel), voice plays from the camera speaker.
+
+#### B) Local PC speaker (fallback)
+
+If go2rtc is not set up, or the camera does not support backchannel audio, familiar-ai falls back to **mpv** or **ffplay**:
+
+| OS | Install |
+|----|---------|
+| macOS | `brew install mpv` |
+| Ubuntu / Debian | `sudo apt install mpv` |
+| Windows | [mpv.io/installation](https://mpv.io/installation/) — download and add to PATH, **or** `winget install ffmpeg` |
+
+> If neither go2rtc nor a local player is available, speech is still generated — it just won't play.
 
 ---
 
@@ -208,6 +321,29 @@ Make sure `ELEVENLABS_API_KEY` is set. Without it, voice is disabled and the age
 ## Technical background
 
 Curious about how it works? See [docs/technical.md](./docs/technical.md) for the research and design decisions behind familiar-ai — ReAct, SayCan, Reflexion, Voyager, the desire system, and more.
+
+---
+
+## Contributing
+
+familiar-ai is an open experiment. If any of this resonates with you — technically or philosophically — contributions are very welcome.
+
+**Good places to start:**
+
+| Area | What's needed |
+|------|---------------|
+| New hardware | Support for more cameras (RTSP, IP Webcam), microphones, actuators |
+| New tools | Web search, home automation, calendar, anything via MCP |
+| New backends | Any LLM or local model that fits the `stream_turn` interface |
+| Persona templates | ME.md templates for different languages and personalities |
+| Research | Better desire models, memory retrieval, theory-of-mind prompting |
+| Documentation | Tutorials, walkthroughs, translations |
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup, code style, and PR guidelines.
+
+If you're unsure where to start, [open an issue](https://github.com/lifemate-ai/familiar-ai/issues) — happy to point you in the right direction.
+
+---
 
 ## License
 

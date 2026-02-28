@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.suggester import SuggestFromList
 from textual.widgets import Footer, Input, RichLog, Static
+from textual_autocomplete import AutoComplete, DropdownItem, TargetState
 
 from ._i18n import _make_banner, _t
 
@@ -43,6 +43,14 @@ CSS = """
     color: $text;
 }
 
+#stream.thinking {
+    color: $text-muted;
+}
+
+#stream.recording {
+    color: $error;
+}
+
 #input-bar {
     dock: bottom;
     height: 3;
@@ -50,6 +58,30 @@ CSS = """
     padding: 0 1;
 }
 """
+
+_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+# Slash commands shown in the autocomplete dropdown
+_SLASH_COMMANDS: list[tuple[str, str]] = [
+    ("/transcribe", "🎙  Start / stop voice input (STT)"),
+    ("/clear", "🗑   Clear conversation history"),
+    ("/quit", "✕   Quit"),
+]
+
+
+def _slash_candidates(state: TargetState) -> list[DropdownItem]:
+    """Return matching commands only when input starts with '/'.
+
+    Uses text up to cursor position so that the library's search_string and
+    our own prefix-filter stay in sync.  Each item's .value is the bare
+    command string so that selecting from the dropdown inserts only the
+    command, not the description.
+    """
+    text = state.text[: state.cursor_position]
+    if not text.startswith("/"):
+        return []
+    return [DropdownItem(main=cmd) for cmd, _desc in _SLASH_COMMANDS if cmd.startswith(text)]
+
 
 ACTION_ICONS = {
     "see": "👀",
@@ -81,6 +113,7 @@ class FamiliarApp(App):
     BINDINGS = [
         Binding("ctrl+c", "quit", _t("quit_label"), show=True),
         Binding("ctrl+l", "clear_history", _t("clear_label"), show=True),
+        Binding("ctrl+t", "toggle_listen", "🎙 Voice", show=True),
     ]
 
     def __init__(self, agent: "EmbodiedAgent", desires: "DesireSystem") -> None:
@@ -94,6 +127,8 @@ class FamiliarApp(App):
         self._agent_running = False
         self._current_text_buf = ""  # buffer for streaming text
         self._log_path = self._open_log_file()
+        self._recording = False
+        self._stop_recording: asyncio.Event = asyncio.Event()
 
     def _open_log_file(self) -> Path:
         log_dir = Path.home() / ".cache" / "familiar-ai"
@@ -114,8 +149,8 @@ class FamiliarApp(App):
         yield Input(
             placeholder=_t("input_placeholder"),
             id="input-bar",
-            suggester=SuggestFromList(["/quit", "/clear"], case_sensitive=False),
         )
+        yield AutoComplete("#input-bar", candidates=_slash_candidates)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -130,7 +165,7 @@ class FamiliarApp(App):
 
     # ── logging helpers ────────────────────────────────────────────
 
-    def _log(self, text: str, style: str = "") -> None:
+    def _write_log(self, text: str, style: str = "") -> None:
         log = self.query_one("#log", RichLog)
         if style:
             log.write(f"[{style}]{text}[/{style}]")
@@ -139,14 +174,14 @@ class FamiliarApp(App):
         self._append_log(text)
 
     def _log_system(self, text: str) -> None:
-        self._log(f"[dim]{text}[/dim]")
+        self._write_log(f"[dim]{text}[/dim]")
 
     def _log_user(self, text: str) -> None:
-        self._log(f"[bold cyan]{self._companion_name} ▶[/bold cyan] {text}")
+        self._write_log(f"[bold cyan]{self._companion_name} ▶[/bold cyan] {text}")
 
     def _log_action(self, name: str, tool_input: dict) -> None:
         label = _format_action(name, tool_input)
-        self._log(f"[dim]{label}[/dim]")
+        self._write_log(f"[dim]{label}[/dim]")
 
     # ── input handling ─────────────────────────────────────────────
 
@@ -163,6 +198,9 @@ class FamiliarApp(App):
             self.agent.clear_history()
             self._log_system(_t("history_cleared"))
             return
+        if text == "/transcribe":
+            await self.action_toggle_listen()
+            return
 
         self._log_user(text)
         self._last_interaction = time.time()
@@ -178,15 +216,43 @@ class FamiliarApp(App):
                 break
             await self._run_agent(text)
 
+    async def _spinner_loop(self, stream: Static, name_tag: str, stop: asyncio.Event) -> None:
+        """Animate the stream widget with a spinner until stop is set."""
+        stream.add_class("thinking")
+        for i in range(10_000):
+            if stop.is_set():
+                break
+            frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
+            stream.update(f"{name_tag} {frame}")
+            await asyncio.sleep(0.08)
+        stream.remove_class("thinking")
+
     async def _run_agent(self, user_input: str, inner_voice: str = "") -> None:
         self._agent_running = True
         self._current_text_buf = ""
+        start_time = time.time()
 
         log = self.query_one("#log", RichLog)
         stream = self.query_one("#stream", Static)
         text_buf: list[str] = []
+        action_counts: dict[str, int] = {}
 
         name_tag = f"[bold magenta]{self._agent_name} ▶[/bold magenta]"
+
+        # Spinner state — restarted after each tool call
+        stop_spinner = asyncio.Event()
+        spinner_task: asyncio.Task = asyncio.create_task(
+            self._spinner_loop(stream, name_tag, stop_spinner)
+        )
+
+        def _stop_spinner() -> None:
+            stop_spinner.set()
+
+        def _restart_spinner() -> None:
+            nonlocal spinner_task, stop_spinner
+            stop_spinner.set()
+            stop_spinner = asyncio.Event()
+            spinner_task = asyncio.create_task(self._spinner_loop(stream, name_tag, stop_spinner))
 
         def _flush_stream() -> None:
             """Commit streamed text to the log and clear the stream widget."""
@@ -197,12 +263,28 @@ class FamiliarApp(App):
                 text_buf.clear()
                 stream.update("")
 
+        def _log_turn_summary() -> None:
+            elapsed = time.time() - start_time
+            parts = [f"[dim]{elapsed:.1f}s[/dim]"]
+            for tool_name, icon in ACTION_ICONS.items():
+                count = action_counts.get(tool_name, 0)
+                if count:
+                    parts.append(f"[dim]{icon} ×{count}[/dim]")
+            summary = "  [dim]──[/dim] " + "  ".join(parts) + "  [dim]" + "─" * 20 + "[/dim]"
+            log.write(summary)
+            self._append_log(f"── {elapsed:.1f}s ──")
+
         def on_action(name: str, tool_input: dict) -> None:
+            action_counts[name] = action_counts.get(name, 0) + 1
+            _stop_spinner()
             _flush_stream()
             label = _format_action(name, tool_input)
             log.write(f"[dim]{label}[/dim]")
+            # Restart spinner while waiting for the next LLM response
+            _restart_spinner()
 
         def on_text(chunk: str) -> None:
+            _stop_spinner()
             text_buf.append(chunk)
             stream.update(f"{name_tag} {''.join(text_buf)}")
 
@@ -216,9 +298,12 @@ class FamiliarApp(App):
                 interrupt_queue=self._input_queue,
             )
             _flush_stream()
+            _log_turn_summary()
         except Exception as e:
-            self._log(f"[red]エラー: {e}[/red]")
+            self._write_log(f"[red]エラー: {e}[/red]")
         finally:
+            _stop_spinner()
+            stream.update("")
             self._agent_running = False
 
     async def _desire_tick(self) -> None:
@@ -234,7 +319,10 @@ class FamiliarApp(App):
         if not prompt:
             return
 
-        desire_name, _ = self.desires.get_dominant()
+        dominant = self.desires.get_dominant()
+        if dominant is None:
+            return
+        desire_name, _ = dominant
         murmur = {
             "look_around": _t("desire_look_around"),
             "explore": _t("desire_explore"),
@@ -259,9 +347,52 @@ class FamiliarApp(App):
         self.desires.satisfy(desire_name)
         self.desires.curiosity_target = None
 
+    async def action_toggle_listen(self) -> None:
+        """Toggle microphone recording for voice input."""
+        if not self.agent.stt:
+            self._log_system("STT not configured (set ELEVENLABS_API_KEY)")
+            return
+
+        stream = self.query_one("#stream", Static)
+
+        if not self._recording:
+            self._recording = True
+            self._stop_recording.clear()
+            stream.add_class("recording")
+            stream.update("🎙 Recording… (Ctrl+M to stop)")
+            self.run_worker(self._do_record(), exclusive=False)
+        else:
+            self._stop_recording.set()
+
+    async def _do_record(self) -> None:
+        """Worker: record until stop_event, transcribe, then submit as user input."""
+        stream = self.query_one("#stream", Static)
+        try:
+            # Kick off recording as a background task so we can update the UI mid-way
+            record_task = asyncio.create_task(
+                self.agent.stt.record_and_transcribe(self._stop_recording)  # type: ignore[union-attr]
+            )
+            # Wait until the user presses Ctrl+M again (stop_event is set)
+            await self._stop_recording.wait()
+            # Recording has stopped — now transcribing
+            stream.remove_class("recording")
+            stream.update("🔄 Transcribing…")
+            text = await record_task
+            if text.strip():
+                self._log_user(text)
+                self._last_interaction = time.time()
+                await self._input_queue.put(text)
+        except Exception as e:
+            self._log_system(f"STT error: {e}")
+        finally:
+            self._recording = False
+            stream.remove_class("recording")
+            stream.update("")
+
     def action_clear_history(self) -> None:
         self.agent.clear_history()
         self._log_system(_t("history_cleared"))
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
+        await self.agent.close()
         self.exit()

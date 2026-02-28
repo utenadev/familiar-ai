@@ -49,7 +49,22 @@ user input
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. クローンしてインストール
+### 2. ffmpeg をインストール
+
+ffmpegは**必須**です。カメラ画像のキャプチャと音声再生に使用します。
+
+| OS | コマンド |
+|----|---------|
+| macOS | `brew install ffmpeg` |
+| Ubuntu / Debian | `sudo apt install ffmpeg` |
+| Fedora / RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
+| Windows | `winget install ffmpeg` — または [ffmpeg.org](https://ffmpeg.org/download.html) からダウンロードしてPATHに追加 |
+| Raspberry Pi | `sudo apt install ffmpeg` |
+
+確認: `ffmpeg -version`
+
+### 3. クローンしてインストール
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -57,12 +72,13 @@ cd familiar-ai
 uv sync
 ```
 
-### 3. 設定
+### 4. 設定
 
 ```bash
 cp .env.example .env
 # .env を編集して設定を入力
 ```
+
 
 **必須項目：**
 
@@ -81,14 +97,14 @@ cp .env.example .env
 | `CAMERA_USER` / `CAMERA_PASS` | カメラの認証情報 |
 | `ELEVENLABS_API_KEY` | 音声出力用 — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. familiarを作る
+### 5. familiarを作る
 
 ```bash
 cp persona-template/en.md ME.md
 # ME.md を編集して、名前と性格を設定
 ```
 
-### 5. 実行
+### 6. 実行
 
 ```bash
 ./run.sh             # Textual TUI（推奨）
@@ -108,6 +124,8 @@ cp persona-template/en.md ME.md
 | Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI互換（Ollama、vllmなど） | `openai` + `BASE_URL=` | — | — |
+| OpenRouter.ai（マルチプロバイダー） | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLIツール**（claude -p、ollamaなど） | `cli` | （コマンド） | — |
 
 **Kimi K2.5 `.env` の例：**
 ```env
@@ -115,6 +133,62 @@ PLATFORM=kimi
 API_KEY=sk-...   # platform.moonshot.ai から取得
 AGENT_NAME=ユキネ
 ```
+
+**Google Gemini `.env` の例：**
+```env
+PLATFORM=gemini
+API_KEY=AIza...   # aistudio.google.com から取得
+MODEL=gemini-2.5-flash  # または gemini-2.5-pro
+AGENT_NAME=ユキネ
+```
+
+**OpenRouter.ai `.env` の例：**
+```env
+PLATFORM=openai
+BASE_URL=https://openrouter.ai/api/v1
+API_KEY=sk-or-...   # openrouter.ai から取得
+MODEL=mistralai/mistral-7b-instruct  # オプション
+AGENT_NAME=ユキネ
+```
+
+> **注意：** ローカル/NVIDIAモデルを無効化するには、`BASE_URL` を `http://localhost:11434/v1` のようなローカルエンドポイントに設定しないでください。クラウドプロバイダーを使用してください。
+
+**CLIツールの `.env` 例：**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI（https://llm.datasette.io）— {} = プロンプト引数
+# MODEL=ollama run gemma3:27b  # Ollama — {} なし、stdinでプロンプトを渡す
+```
+
+---
+
+## MCPサーバー
+
+familiar-ai は任意の [MCP（Model Context Protocol）](https://modelcontextprotocol.io) サーバーに接続できます。外部メモリ、ファイルシステムアクセス、Web検索など、あらゆるツールを追加できます。
+
+`~/.familiar-ai.json` にサーバーを設定します（Claude Codeと同じ形式）：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+サポートしているトランスポートタイプ：
+- **`stdio`**: ローカルサブプロセスを起動（`command` + `args`）
+- **`sse`**: HTTP+SSEサーバーに接続（`url`）
+
+設定ファイルの場所は `MCP_CONFIG=/path/to/config.json` で変更できます。
 
 ---
 
@@ -161,7 +235,47 @@ API_KEY=sk-...
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # オプション、省略時はデフォルト音声を使用
    ```
-3. 音声はgo2rtc経由でカメラのスピーカーから再生されます（初回実行時に自動ダウンロード）
+
+音声の再生先は2通りあります：
+
+#### A) カメラのスピーカーから再生（go2rtc 経由）
+
+カメラ内蔵スピーカーから声を出したい場合は [go2rtc](https://github.com/AlexxIT/go2rtc/releases) のセットアップが必要です。
+
+1. [リリースページ](https://github.com/AlexxIT/go2rtc/releases) からバイナリをダウンロード：
+   - Linux/macOS: `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows: `go2rtc_win64.exe`**
+
+2. 以下の場所に配置・リネーム：
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc       # chmod +x が必要
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. 同じディレクトリに `go2rtc.yaml` を作成：
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+   ※ `YOUR_CAM_USER` / `YOUR_CAM_PASS` は Tapoアプリで作成したローカルアカウント。`YOUR_CAM_IP` はカメラのIPアドレス。
+
+4. familiar-ai 起動時に go2rtc が自動起動します。カメラが双方向音声（バックチャンネル）に対応していれば、カメラのスピーカーから声が出ます。
+
+#### B) PCのスピーカーから再生（フォールバック）
+
+go2rtc が未設定、またはカメラがバックチャンネル非対応の場合、**mpv** または **ffplay** でPCから再生します。
+
+| OS | インストール方法 |
+|----|----------------|
+| macOS | `brew install mpv` |
+| Ubuntu / Debian | `sudo apt install mpv` |
+| Windows | [mpv.io/installation](https://mpv.io/installation/) からダウンロードしてPATHに追加、**または** `winget install ffmpeg` |
+
+> go2rtc・mpv・ffplay がいずれも未設定でも、音声生成自体（ElevenLabs API呼び出し）は動作します。再生がスキップされるだけです。
 
 ---
 

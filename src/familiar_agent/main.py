@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import time
+from pathlib import Path
 
 from .agent import EmbodiedAgent
 from .config import AgentConfig
@@ -13,6 +15,29 @@ from ._i18n import BANNER, _t
 
 IDLE_CHECK_INTERVAL = 10.0  # seconds between desire checks when idle
 DESIRE_COOLDOWN = 90.0  # seconds after last user interaction before desires can fire
+
+
+def setup_logging(debug: bool = False) -> None:
+    """Setup basic logging to a file ONLY (to keep the screen clean)."""
+    log_dir = Path.home() / ".cache" / "familiar-ai"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "app.log"
+
+    level = logging.DEBUG if debug else logging.INFO
+
+    # Root logger configuration - FileHandler only
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[logging.FileHandler(log_file, encoding="utf-8")],
+    )
+    # Reduce noise from 3rd party libs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("google.genai").setLevel(logging.WARNING)
+
+    logging.info("Logging initialized. Level: %s, File: %s", logging.getLevelName(level), log_file)
 
 
 def _format_action(name: str, tool_input: dict) -> str:
@@ -91,19 +116,25 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
 
             # No pending input — show prompt and wait briefly
             print("\n> ", end="", flush=True)
+            queued_input: str | None
             try:
-                user_input = await asyncio.wait_for(input_queue.get(), timeout=IDLE_CHECK_INTERVAL)
+                queued_input = await asyncio.wait_for(
+                    input_queue.get(), timeout=IDLE_CHECK_INTERVAL
+                )
             except asyncio.TimeoutError:
-                user_input = None
+                queued_input = None
 
-            if user_input is None and input_queue.empty():
+            if queued_input is None and input_queue.empty():
                 # Genuine idle — check desires, but respect cooldown after conversation
                 if time.time() - last_interaction_time < DESIRE_COOLDOWN:
                     continue  # Still in post-conversation cooldown
 
                 prompt = desires.dominant_as_prompt()
                 if prompt:
-                    desire_name, _ = desires.get_dominant()
+                    dominant = desires.get_dominant()
+                    if dominant is None:
+                        continue
+                    desire_name, _ = dominant
                     murmur = {
                         "look_around": _t("desire_look_around"),
                         "explore": _t("desire_explore"),
@@ -153,15 +184,16 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                         )
                 continue
 
-            if user_input:
+            if queued_input:
                 await _handle_user(
-                    user_input, agent, desires, on_action, on_text, debug, input_queue
+                    queued_input, agent, desires, on_action, on_text, debug, input_queue
                 )
 
     except (KeyboardInterrupt, EOFError):
         pass
     finally:
         stdin_task.cancel()
+        await agent.close()
         print(f"\n{_t('repl_goodbye')}")
 
 
@@ -201,9 +233,83 @@ async def _handle_user(
         desires.satisfy("greet_companion")
 
 
+def _mcp_command(args: list[str]) -> None:
+    """Handle 'familiar mcp <subcommand>' — manage ~/.familiar-ai.json."""
+    import argparse
+    import json
+
+    from .mcp_client import _resolve_config_path
+
+    parser = argparse.ArgumentParser(prog="familiar mcp", add_help=True)
+    sub = parser.add_subparsers(dest="action", required=True)
+
+    p_add = sub.add_parser("add", help="Add an MCP server")
+    p_add.add_argument("name", help="Name for the server (e.g. filesystem)")
+    p_add.add_argument("command", help="Command to launch the server (e.g. npx)")
+    p_add.add_argument("server_args", nargs="*", metavar="ARG")
+    p_add.add_argument(
+        "-e",
+        "--env",
+        action="append",
+        metavar="KEY=VALUE",
+        default=[],
+        help="Set environment variable (repeatable)",
+    )
+
+    p_rm = sub.add_parser("remove", help="Remove an MCP server")
+    p_rm.add_argument("name")
+
+    sub.add_parser("list", help="List configured MCP servers")
+
+    parsed = parser.parse_args(args)
+    cfg_path = _resolve_config_path()
+
+    data: dict = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    servers: dict = data.setdefault("mcpServers", {})
+
+    if parsed.action == "add":
+        env: dict[str, str] = {}
+        for kv in parsed.env:
+            k, _, v = kv.partition("=")
+            if k:
+                env[k] = v
+        entry: dict = {"type": "stdio", "command": parsed.command, "args": parsed.server_args}
+        if env:
+            entry["env"] = env
+        servers[parsed.name] = entry
+        cfg_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        print(f"Added MCP server '{parsed.name}' → {cfg_path}")
+
+    elif parsed.action == "remove":
+        if parsed.name not in servers:
+            print(f"MCP server '{parsed.name}' not found in {cfg_path}")
+            sys.exit(1)
+        del servers[parsed.name]
+        cfg_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        print(f"Removed MCP server '{parsed.name}'")
+
+    elif parsed.action == "list":
+        if not servers:
+            print(f"No MCP servers configured.  Config: {cfg_path}")
+            return
+        print(f"MCP servers  ({cfg_path})\n")
+        for name, cfg in servers.items():
+            cmd = cfg.get("command", "")
+            a = " ".join(str(x) for x in cfg.get("args", []))
+            env_keys = list((cfg.get("env") or {}).keys())
+            env_hint = f"  env:{','.join(env_keys)}" if env_keys else ""
+            print(f"  {name:<22} {cmd} {a}{env_hint}")
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "mcp":
+        _mcp_command(sys.argv[2:])
+        return
+
     debug = "--debug" in sys.argv
     use_tui = "--no-tui" not in sys.argv
+
+    setup_logging(debug=debug)
 
     config = AgentConfig()
     if not config.api_key:

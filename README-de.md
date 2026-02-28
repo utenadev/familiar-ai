@@ -46,7 +46,22 @@ Im Leerlauf handelt es nach seinen eigenen Wünschen: Neugier, den Wunsch nach d
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 2. Klone und installiere
+### 2. Installiere ffmpeg
+
+ffmpeg ist **erforderlich** für die Kamerabilderfassung und Audiowiedergabe.
+
+| OS | Befehl |
+|----|--------|
+| macOS | `brew install ffmpeg` |
+| Ubuntu / Debian | `sudo apt install ffmpeg` |
+| Fedora / RHEL | `sudo dnf install ffmpeg` |
+| Arch Linux | `sudo pacman -S ffmpeg` |
+| Windows | `winget install ffmpeg` — oder von [ffmpeg.org](https://ffmpeg.org/download.html) herunterladen und zu PATH hinzufügen |
+| Raspberry Pi | `sudo apt install ffmpeg` |
+
+Überprüfen: `ffmpeg -version`
+
+### 3. Klone und installiere
 
 ```bash
 git clone https://github.com/lifemate-ai/familiar-ai
@@ -54,7 +69,7 @@ cd familiar-ai
 uv sync
 ```
 
-### 3. Konfiguriere
+### 4. Konfiguriere
 
 ```bash
 cp .env.example .env
@@ -78,14 +93,14 @@ cp .env.example .env
 | `CAMERA_USER` / `CAMERA_PASS` | Anmeldedaten der Kamera |
 | `ELEVENLABS_API_KEY` | Für Sprachausgabe — [elevenlabs.io](https://elevenlabs.io/) |
 
-### 4. Erstelle deinen Familiar
+### 5. Erstelle deinen Familiar
 
 ```bash
 cp persona-template/en.md ME.md
 # Bearbeite ME.md — gib ihm einen Namen und eine Persönlichkeit
 ```
 
-### 5. Starten
+### 6. Starten
 
 ```bash
 ./run.sh             # Textuelle TUI (empfohlen)
@@ -105,6 +120,8 @@ cp persona-template/en.md ME.md
 | Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI-kompatibel (Ollama, vllm…) | `openai` + `BASE_URL=` | — | — |
+| OpenRouter.ai (Mehrfachanbieter) | `openai` + `BASE_URL=https://openrouter.ai/api/v1` | — | [openrouter.ai](https://openrouter.ai) |
+| **CLI-Tool** (llm, ollama…) | `cli` | (der Befehl) | — |
 
 **Kimi K2.5 `.env` Beispiel:**
 ```env
@@ -112,6 +129,62 @@ PLATFORM=kimi
 API_KEY=sk-...   # von platform.moonshot.ai
 AGENT_NAME=Yukine
 ```
+
+**Google Gemini `.env` Beispiel:**
+```env
+PLATFORM=gemini
+API_KEY=AIza...   # von aistudio.google.com
+MODEL=gemini-2.5-flash  # oder gemini-2.5-pro
+AGENT_NAME=Yukine
+```
+
+**OpenRouter.ai `.env` Beispiel:**
+```env
+PLATFORM=openai
+BASE_URL=https://openrouter.ai/api/v1
+API_KEY=sk-or-...   # von openrouter.ai
+MODEL=mistralai/mistral-7b-instruct  # optional
+AGENT_NAME=Yukine
+```
+
+> **Hinweis:** Um lokale/NVIDIA-Modelle zu deaktivieren, setzen Sie `BASE_URL` nicht auf einen lokalen Endpunkt wie `http://localhost:11434/v1`. Verwenden Sie stattdessen Cloud-Anbieter.
+
+**CLI-Tool `.env` Beispiel:**
+```env
+PLATFORM=cli
+MODEL=llm -m gemma3 {}        # llm CLI (https://llm.datasette.io) — {} = Prompt-Argument
+# MODEL=ollama run gemma3:27b  # Ollama — ohne {}, Prompt via stdin
+```
+
+---
+
+## MCP-Server
+
+familiar-ai kann sich mit jedem [MCP (Model Context Protocol)](https://modelcontextprotocol.io) Server verbinden und so externe Speicher, Dateizugriff, Websuche und weitere Tools einbinden.
+
+Konfigurieren Sie Server in `~/.familiar-ai.json` (gleiches Format wie Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "memory": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    }
+  }
+}
+```
+
+Zwei Transporttypen werden unterstützt:
+- **`stdio`**: startet einen lokalen Unterprozess (`command` + `args`)
+- **`sse`**: verbindet sich mit einem HTTP+SSE-Server (`url`)
+
+Überschreiben Sie den Pfad der Konfigurationsdatei mit `MCP_CONFIG=/path/to/config.json`.
 
 ---
 
@@ -158,7 +231,45 @@ Starte `./run.sh` und fang an zu chatten. Füge Hardware später hinzu.
    ELEVENLABS_API_KEY=sk_...
    ELEVENLABS_VOICE_ID=...   # optional, verwendet Standardstimme wenn weggelassen
    ```
-3. Die Stimme wird über den integrierten Kameralautsprecher via go2rtc abgespielt (beim ersten Start automatisch heruntergeladen)
+Es gibt zwei Wiedergabeziele:
+
+#### A) Kameralautsprecher (via go2rtc)
+
+Um Audio über den integrierten Kameralautsprecher abzuspielen, muss [go2rtc](https://github.com/AlexxIT/go2rtc/releases) manuell eingerichtet werden:
+
+1. Lade das Binary von der [Releases-Seite](https://github.com/AlexxIT/go2rtc/releases) herunter:
+   - Linux/macOS: `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
+   - **Windows: `go2rtc_win64.exe`**
+
+2. Ablegen und umbenennen:
+   ```
+   # Linux / macOS
+   ~/.cache/embodied-claude/go2rtc/go2rtc          # chmod +x erforderlich
+
+   # Windows
+   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
+   ```
+
+3. `go2rtc.yaml` im selben Verzeichnis erstellen:
+   ```yaml
+   streams:
+     tapo_cam:
+       - rtsp://YOUR_CAM_USER:YOUR_CAM_PASS@YOUR_CAM_IP/stream1
+   ```
+
+4. familiar-ai startet go2rtc automatisch beim Start. Wenn die Kamera bidirektionales Audio (Backchannel) unterstützt, kommt die Stimme aus dem Kameralautsprecher.
+
+#### B) Lokaler PC-Lautsprecher (Fallback)
+
+Ohne go2rtc oder wenn die Kamera kein Backchannel-Audio unterstützt, wird auf **mpv** oder **ffplay** zurückgefallen:
+
+| OS | Installation |
+|----|-------------|
+| macOS | `brew install mpv` |
+| Ubuntu / Debian | `sudo apt install mpv` |
+| Windows | [mpv.io/installation](https://mpv.io/installation/) — herunterladen und zu PATH hinzufügen, **oder** `winget install ffmpeg` |
+
+> Ohne go2rtc und lokalen Player funktioniert die Sprachgenerierung (ElevenLabs API) weiterhin — die Wiedergabe wird lediglich übersprungen.
 
 ---
 

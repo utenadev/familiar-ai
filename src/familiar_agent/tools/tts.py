@@ -6,7 +6,9 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -15,7 +17,8 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 _GO2RTC_CACHE = Path.home() / ".cache" / "embodied-claude" / "go2rtc"
-_GO2RTC_BIN = _GO2RTC_CACHE / "go2rtc"
+# On Windows the binary is go2rtc.exe; on other platforms there is no extension.
+_GO2RTC_BIN = _GO2RTC_CACHE / ("go2rtc.exe" if sys.platform == "win32" else "go2rtc")
 _GO2RTC_CONFIG = _GO2RTC_CACHE / "go2rtc.yaml"
 
 
@@ -111,26 +114,38 @@ class TTSTool:
                     return f"Said: {text[:50]}..."
                 logger.warning("go2rtc playback failed: %s — falling back to local", msg)
 
-            # Local player (used directly for "speaker", or as fallback for "myself")
-            for player_args in (
+            # Local player (used directly for "speaker", or as fallback for "myself").
+            # Use shutil.which() to resolve the real executable path — required on Windows
+            # where asyncio.create_subprocess_exec does not search PATH reliably.
+            candidates = [
                 ["mpv", "--no-terminal", "--ao=pulse", tmp_path],
                 ["mpv", "--no-terminal", tmp_path],
                 ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", tmp_path],
-            ):
-                proc = await asyncio.create_subprocess_exec(
-                    *player_args,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await proc.communicate()
-                if proc.returncode == 0:
-                    return f"Said: {text[:50]}..."
-                err = stderr.decode(errors="replace").strip()
-                logger.warning(
-                    "%s failed (exit %d): %s", player_args[0], proc.returncode, err[:120]
-                )
+            ]
+            for player_args in candidates:
+                player_name = player_args[0]
+                player_path = shutil.which(player_name)
+                if player_path is None:
+                    logger.debug("Player not found in PATH, skipping: %s", player_name)
+                    continue
+                resolved_args = [player_path, *player_args[1:]]
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *resolved_args,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    _, stderr = await proc.communicate()
+                    if proc.returncode == 0:
+                        return f"Said: {text[:50]}..."
+                    err = stderr.decode(errors="replace").strip()
+                    logger.warning(
+                        "%s failed (exit %d): %s", player_name, proc.returncode, err[:120]
+                    )
+                except (FileNotFoundError, OSError) as e:
+                    logger.warning("Could not launch %s: %s", player_name, e)
 
-            return "TTS playback failed (all players failed)"
+            return "TTS playback failed (no working audio player found: tried mpv, ffplay)"
         finally:
             try:
                 os.unlink(tmp_path)

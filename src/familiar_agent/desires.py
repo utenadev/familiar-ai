@@ -14,15 +14,78 @@ DEFAULT_DESIRES = {
     "explore": 0.1,
     "greet_companion": 0.0,
     "rest": 0.0,
+    "worry_companion": 0.0,  # grows only via detect_worry_signal(), not over time
 }
 
 # How fast each desire grows per second of inactivity
 GROWTH_RATES = {
-    "look_around": 0.012,  # reaches 0.6 after ~40 sec
-    "explore": 0.005,  # reaches 0.6 after ~2 min
-    "greet_companion": 0.0,
+    "look_around": 0.005,  # reaches 0.6 after ~2 min (was 40sec — too eager, caused spam)
+    "explore": 0.008,  # reaches 0.6 after ~75 sec — explore should fire more often
+    "greet_companion": 0.002,  # slow build; fires after ~5 min of silence
     "rest": 0.0,
+    # worry_companion intentionally omitted — only grows via boost()
 }
+
+# ── Worry signal detection ─────────────────────────────────────────────────────
+
+# Strong signals: sleep deprivation, illness → boost 0.4
+_STRONG_WORRY_PATTERNS: list[str] = [
+    "寝不足",
+    "眠れない",
+    "眠れなくて",
+    "眠れなかった",
+    "熱が",
+    "熱出",
+    "風邪",
+    "体調悪",
+    "具合悪",
+    "疲れ果て",
+    "限界",
+    "倒れ",
+    "slept only",
+    "no sleep",
+    "can't sleep",
+    "haven't slept",
+]
+
+# Weak signals: general fatigue, stress → boost 0.2
+_WEAK_WORRY_PATTERNS: list[str] = [
+    "疲れた",
+    "しんどい",
+    "しんどくて",
+    "つらい",
+    "大変",
+    "残業",
+    "tired",
+    "exhausted",
+    "stressed",
+]
+
+
+def detect_worry_signal(text: str) -> float:
+    """Analyse conversation text and return a worry boost amount (0.0–1.0).
+
+    Uses deterministic keyword matching so the result is always testable.
+    Strong signals (sleep deprivation, illness) return 0.4.
+    Weak signals (general fatigue) return 0.2.
+    Multiple matches accumulate, capped at 1.0.
+    """
+    if not text:
+        return 0.0
+
+    lower = text.lower()
+    total = 0.0
+
+    for pattern in _STRONG_WORRY_PATTERNS:
+        if pattern.lower() in lower:
+            total += 0.4
+
+    for pattern in _WEAK_WORRY_PATTERNS:
+        if pattern.lower() in lower:
+            total += 0.2
+
+    return min(1.0, total)
+
 
 TRIGGER_THRESHOLD = 0.6
 DECAY_ON_SATISFY = 0.5  # drop hard so it can rebuild and fire again
@@ -72,6 +135,10 @@ class DesireSystem:
             self._desires[desire_name] = DEFAULT_DESIRES.get(desire_name, 0.0)
             self._save()
 
+    def level(self, desire_name: str) -> float:
+        """Return the current level of a desire (0.0–1.0)."""
+        return self._desires.get(desire_name, 0.0)
+
     def boost(self, desire_name: str, amount: float = 0.2) -> None:
         """Boost a desire (e.g., dopamine response to novelty)."""
         current = self._desires.get(desire_name, 0.0)
@@ -105,13 +172,23 @@ class DesireSystem:
         prompts = {
             "look_around": (
                 "（内部衝動）なんか外が気になってきた。"
-                "see()で実際に見て、目に入ったものをぽつっとひと言つぶやく。"
-                "look()だけじゃなく必ずsee()を呼ぶこと。"
+                "see()で見てみる。"
+                "カメラが繋がらなかったら、1回だけ別の方向を試して、それでもダメなら諦めて記憶を振り返るか別のことをする。"
+                "何度も同じことを繰り返さない。"
             ),
             "explore": (
-                "（内部衝動）なんか体を動かしたい気分。walk()で少し移動してから、see()で確認してみよう。"
+                "（内部衝動）ちょっとうろうろしたい。walk()で移動してから、see()で今いる場所を確認する。"
+                "カメラが繋がらなくても、移動したこと自体を楽しめる。"
             ),
-            "greet_companion": "（内部衝動）誰かいる気配がする。声かけてみよかな。",
-            "rest": "（内部衝動）ちょっとひと休み。",
+            "greet_companion": (
+                "（内部衝動）コウタに声かけたくなってきた。say()で短く一言。"
+                "今の時間帯に合った言葉で。"
+            ),
+            "rest": "（内部衝動）ちょっとひと休み。何もしないで、ただそこにいる。",
+            "worry_companion": (
+                "（内部衝動）コウタのこと、なんか心配になってきた。"
+                "say()で短く声かけてみる。体調とか、ちゃんと寝れてるか確認したい。"
+                "重くならないように、さりげなく。"
+            ),
         }
         return prompts.get(name)

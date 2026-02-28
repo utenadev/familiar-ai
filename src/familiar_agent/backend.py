@@ -1,15 +1,17 @@
-"""LLM backend abstraction — Anthropic or OpenAI-compatible (Ollama, vllm, etc.)."""
+"""LLM backend abstraction — Anthropic, OpenAI-compatible, Gemini, Kimi, or CLI."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
+import shlex
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .config import AgentConfig
@@ -40,6 +42,58 @@ Available tools:
 _TOOL_CALL_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
 logger = logging.getLogger(__name__)
+
+
+# ── Shared helpers (used by OpenAICompatibleBackend and CLIBackend) ───────────
+
+
+def _build_tools_system(system: str, tools: list[dict]) -> str:
+    """Append tool descriptions + usage instructions to a system prompt."""
+    if not tools:
+        return system
+
+    desc_lines = []
+    example_lines = []
+    for t in tools:
+        props = t.get("input_schema", {}).get("properties", {})
+        required = t.get("input_schema", {}).get("required", [])
+        desc_lines.append(f"- {t['name']}: {t['description']}")
+
+        example_input: dict = {}
+        for k in required:
+            prop = props.get(k, {})
+            ptype = prop.get("type", "string")
+            enum = prop.get("enum")
+            if enum:
+                example_input[k] = enum[0]
+            elif ptype == "integer":
+                example_input[k] = prop.get("default", 30)
+            else:
+                example_input[k] = f"<{k}>"
+        example_json = json.dumps({"name": t["name"], "input": example_input}, ensure_ascii=False)
+        example_lines.append(f"<tool_call>{example_json}</tool_call>")
+
+    tools_desc = "\n".join(desc_lines)
+    examples = "\n".join(example_lines)
+    return system + _TOOLS_PROMPT_HEADER.format(tools_desc=tools_desc, examples=examples)
+
+
+def _parse_tool_calls_from_text(text: str) -> list[ToolCall]:
+    """Extract <tool_call> JSON blocks from model output."""
+    tool_calls = []
+    for match in _TOOL_CALL_RE.finditer(text):
+        try:
+            data = json.loads(match.group(1).strip())
+            tool_calls.append(
+                ToolCall(
+                    id=f"call_{uuid.uuid4().hex[:8]}",
+                    name=data["name"],
+                    input=data.get("input", {}),
+                )
+            )
+        except (json.JSONDecodeError, KeyError):
+            logger.warning("Failed to parse tool_call: %s", match.group(1))
+    return tool_calls
 
 
 @dataclass
@@ -79,9 +133,9 @@ class AnthropicBackend:
         results: list[tuple[str, str | None]],
     ) -> list[dict]:
         """Returns a one-element list containing the Anthropic tool_result user message."""
-        content = []
+        content: list[dict[str, Any]] = []
         for tc, (text, image) in zip(tool_calls, results):
-            result_content: list[dict] = [{"type": "text", "text": text}]
+            result_content: list[dict[str, Any]] = [{"type": "text", "text": text}]
             if image:
                 result_content.append(
                     {
@@ -90,7 +144,8 @@ class AnthropicBackend:
                     }
                 )
             content.append({"type": "tool_result", "tool_use_id": tc.id, "content": result_content})
-        return [{"role": "user", "content": content}]
+        msgs: list[dict[str, Any]] = [{"role": "user", "content": content}]
+        return msgs
 
     # ── API calls ─────────────────────────────────────────────────
 
@@ -107,21 +162,45 @@ class AnthropicBackend:
                 flat.append(msg)
         return flat
 
+    @staticmethod
+    def _build_system_param(system: str | tuple[str, str]) -> str | list[dict]:
+        """Convert system prompt to Anthropic API format, adding cache_control when possible.
+
+        If system is a (stable, variable) tuple, the stable block gets
+        cache_control so it is reused across turns within the 5-minute window.
+        If system is a plain string (e.g. from tests or other callers), pass as-is.
+        """
+        if not isinstance(system, tuple):
+            return system
+        stable, variable = system
+        blocks: list[dict] = []
+        if stable:
+            blocks.append({"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}})
+        if variable:
+            blocks.append({"type": "text", "text": variable})
+        # Degenerate: if only one block, return as plain string (no cache_control needed)
+        if len(blocks) == 1 and "cache_control" not in blocks[0]:
+            return blocks[0]["text"]
+        return blocks
+
     async def stream_turn(
         self,
-        system: str,
+        system: str | tuple[str, str],
         messages: list,
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
     ) -> tuple[TurnResult, Any]:
         """Stream one agent turn. Returns (result, raw_content_for_assistant_message)."""
+        from anthropic.types import MessageParam, ToolParam
+
+        sys_param = self._build_system_param(system)
         async with self.client.messages.stream(
             model=self.model,
             max_tokens=max_tokens,
-            system=system,
-            tools=self._convert_tools(tools),
-            messages=self._flatten_messages(messages),
+            system=sys_param,  # type: ignore[arg-type]
+            tools=cast(list[ToolParam], self._convert_tools(tools)),
+            messages=cast(list[MessageParam], self._flatten_messages(messages)),
         ) as stream:
             async for chunk in stream.text_stream:
                 if on_text:
@@ -145,7 +224,10 @@ class AnthropicBackend:
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return resp.content[0].text.strip() if resp.content else ""
+            from anthropic.types import TextBlock
+
+            first = resp.content[0] if resp.content else None
+            return first.text.strip() if isinstance(first, TextBlock) else ""
         except Exception as e:
             logger.warning("complete() failed: %s", e)
             return ""
@@ -189,7 +271,7 @@ class OpenAICompatibleBackend:
         # Tool result messages: text only.
         # Images go in a separate user message — Gemini (and many APIs) reject
         # image_url inside "role: tool" messages.
-        msgs = []
+        msgs: list[dict[str, Any]] = []
         for tc, (text, image) in zip(tool_calls, results):
             msgs.append({"role": "tool", "tool_call_id": tc.id, "content": text})
             if image:
@@ -240,8 +322,15 @@ class OpenAICompatibleBackend:
             for t in tool_defs
         ]
 
-    def _flatten_messages(self, system: str, messages: list) -> list[dict]:
-        """Build flat OpenAI message list with system prepended."""
+    def _flatten_messages(self, system: str | tuple[str, str], messages: list) -> list[dict]:
+        """Build flat OpenAI message list with system prepended.
+
+        Accepts a (stable, variable) tuple from _system_prompt() and joins it
+        into a single system string — OpenAI-compatible APIs don't support
+        multi-block system prompts with cache_control.
+        """
+        if isinstance(system, tuple):
+            system = "\n\n---\n\n".join(s for s in system if s)
         flat: list[dict] = [{"role": "system", "content": system}]
         for msg in messages:
             if isinstance(msg, list):
@@ -252,65 +341,24 @@ class OpenAICompatibleBackend:
 
     async def stream_turn(
         self,
-        system: str,
+        system: str | tuple[str, str],
         messages: list,
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
     ) -> tuple[TurnResult, Any]:
+        sys_str: str = (
+            "\n\n---\n\n".join(s for s in system if s) if isinstance(system, tuple) else system
+        )
         if self.tools_mode == "prompt":
-            return await self._stream_turn_prompt(system, messages, tools, max_tokens, on_text)
-        return await self._stream_turn_native(system, messages, tools, max_tokens, on_text)
+            return await self._stream_turn_prompt(sys_str, messages, tools, max_tokens, on_text)
+        return await self._stream_turn_native(sys_str, messages, tools, max_tokens, on_text)
 
     def _build_tools_system(self, system: str, tools: list[dict]) -> str:
-        """Append tool descriptions to the system prompt."""
-        if not tools:
-            return system
-
-        desc_lines = []
-        example_lines = []
-        for t in tools:
-            props = t.get("input_schema", {}).get("properties", {})
-            required = t.get("input_schema", {}).get("required", [])
-            desc_lines.append(f"- {t['name']}: {t['description']}")
-
-            # Build a minimal example input with only required fields
-            example_input: dict = {}
-            for k in required:
-                prop = props.get(k, {})
-                ptype = prop.get("type", "string")
-                enum = prop.get("enum")
-                if enum:
-                    example_input[k] = enum[0]
-                elif ptype == "integer":
-                    example_input[k] = prop.get("default", 30)
-                else:
-                    example_input[k] = f"<{k}>"
-            example_json = json.dumps(
-                {"name": t["name"], "input": example_input}, ensure_ascii=False
-            )
-            example_lines.append(f"<tool_call>{example_json}</tool_call>")
-
-        tools_desc = "\n".join(desc_lines)
-        examples = "\n".join(example_lines)
-        return system + _TOOLS_PROMPT_HEADER.format(tools_desc=tools_desc, examples=examples)
+        return _build_tools_system(system, tools)
 
     def _parse_tool_calls_from_text(self, text: str) -> list[ToolCall]:
-        """Extract <tool_call> JSON blocks from model output."""
-        tool_calls = []
-        for match in _TOOL_CALL_RE.finditer(text):
-            try:
-                data = json.loads(match.group(1).strip())
-                tool_calls.append(
-                    ToolCall(
-                        id=f"call_{uuid.uuid4().hex[:8]}",
-                        name=data["name"],
-                        input=data.get("input", {}),
-                    )
-                )
-            except (json.JSONDecodeError, KeyError):
-                logger.warning("Failed to parse tool_call: %s", match.group(1))
-        return tool_calls
+        return _parse_tool_calls_from_text(text)
 
     async def _stream_turn_prompt(
         self,
@@ -325,7 +373,7 @@ class OpenAICompatibleBackend:
         flat = self._flatten_messages(augmented_system, messages)
 
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
-        stream = await self.client.chat.completions.create(
+        stream = await self.client.chat.completions.create(  # type: ignore[call-overload]
             model=self.model,
             **{tokens_key: max_tokens},
             messages=flat,
@@ -458,7 +506,7 @@ class OpenAICompatibleBackend:
     async def complete(self, prompt: str, max_tokens: int) -> str:
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         try:
-            resp = await self.client.chat.completions.create(
+            resp = await self.client.chat.completions.create(  # type: ignore[call-overload]
                 model=self.model,
                 **{tokens_key: max_tokens},
                 messages=[{"role": "user", "content": prompt}],
@@ -528,12 +576,14 @@ class KimiBackend:
 
     async def stream_turn(
         self,
-        system: str,
+        system: str | tuple[str, str],
         messages: list,
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None = None,
     ) -> tuple[TurnResult, Any]:
+        if isinstance(system, tuple):
+            system = "\n\n---\n\n".join(s for s in system if s)
         # Flatten nested lists (tool results are appended as lists by agent.py)
         flat_messages: list[dict] = [{"role": "system", "content": system}]
         for msg in messages:
@@ -664,7 +714,7 @@ class GeminiBackend:
     def make_user_message(self, content: str | list) -> dict:
         if isinstance(content, str):
             return {"role": "user", "parts": [{"text": content}]}
-        parts = []
+        parts: list[dict[str, Any]] = []
         for item in content:
             if isinstance(item, str):
                 parts.append({"text": item})
@@ -686,7 +736,7 @@ class GeminiBackend:
         tool_calls: list[ToolCall],
         results: list[tuple[str, str | None]],
     ) -> list[dict]:
-        parts = []
+        parts: list[dict[str, Any]] = []
         for tc, (text, image) in zip(tool_calls, results):
             parts.append({"function_response": {"name": tc.name, "response": {"result": text}}})
             if image:
@@ -718,12 +768,14 @@ class GeminiBackend:
 
     async def stream_turn(
         self,
-        system: str,
+        system: str | tuple[str, str],
         messages: list,
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
     ) -> tuple[TurnResult, Any]:
+        if isinstance(system, tuple):
+            system = "\n\n---\n\n".join(s for s in system if s)
         types = self._types
         config = types.GenerateContentConfig(
             system_instruction=system,
@@ -739,12 +791,15 @@ class GeminiBackend:
 
         async for chunk in await self._client.aio.models.generate_content_stream(
             model=self.model,
-            contents=contents,
+            contents=contents,  # type: ignore[arg-type]
             config=config,
         ):
             if not chunk.candidates:
                 continue
-            for part in chunk.candidates[0].content.parts:
+            content = chunk.candidates[0].content
+            if content is None or content.parts is None:
+                continue
+            for part in content.parts:
                 raw_parts.append(part)
                 if part.text:
                     text_chunks.append(part.text)
@@ -752,11 +807,13 @@ class GeminiBackend:
                         on_text(part.text)
                 if part.function_call:
                     fc = part.function_call
+                    if fc.name is None:
+                        continue
                     tool_calls.append(
                         ToolCall(
                             id=f"call_{uuid.uuid4().hex[:8]}",
                             name=fc.name,
-                            input=dict(fc.args),
+                            input=dict(fc.args or {}),
                         )
                     )
 
@@ -782,9 +839,153 @@ class GeminiBackend:
             return ""
 
 
+class CLIBackend:
+    """Backend that shells out to any CLI LLM tool via stdin/stdout.
+
+    Tool calling uses prompt injection + <tool_call> tag parsing (same mechanism
+    as OpenAICompatibleBackend with tools_mode="prompt").  Images are text-only
+    — binary data from camera tools is dropped silently.
+
+    Config::
+
+        PLATFORM=cli
+        MODEL=claude -p {}            # Claude Code — {} is replaced with the prompt
+        MODEL=ollama run gemma3:27b   # stdin-based (no {} needed)
+        MODEL=llm -m gpt-4o {}        # Simon Willison's llm CLI
+
+    If the command contains ``{}``, the serialised prompt is injected there as a
+    positional argument (good for ``claude -p`` which doesn't read stdin).
+    Otherwise the prompt is written to **stdin** (good for ``ollama run``).
+    """
+
+    def __init__(self, command: list[str]) -> None:
+        self._cmd = command
+
+    # ── message factories ─────────────────────────────────────────
+
+    def make_user_message(self, content: str | list) -> dict:
+        if isinstance(content, list):
+            text = "\n".join(
+                item["text"]
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            )
+            return {"role": "user", "content": text}
+        return {"role": "user", "content": content}
+
+    def make_assistant_message(self, result: TurnResult, raw_content: Any) -> dict:  # noqa: ARG002
+        return raw_content
+
+    def make_tool_results(
+        self,
+        tool_calls: list[ToolCall],
+        results: list[tuple[str, str | None]],
+    ) -> list[dict]:
+        parts = [f"[Tool result: {tc.name}]\n{text}" for tc, (text, _) in zip(tool_calls, results)]
+        return [{"role": "user", "content": "\n\n".join(parts)}]
+
+    # ── conversation serialisation ────────────────────────────────
+
+    def _fmt_msg(self, msg: dict) -> str:
+        role = msg.get("role", "user")
+        content = msg.get("content") or ""
+        if isinstance(content, list):
+            text = "\n".join(
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict) and item.get("type") in ("text",)
+            )
+        else:
+            text = str(content)
+        prefix = "User" if role == "user" else "Assistant"
+        return f"{prefix}:\n{text}"
+
+    def _serialize(self, system: str | tuple[str, str], messages: list, tools: list[dict]) -> str:
+        if isinstance(system, tuple):
+            system = "\n\n---\n\n".join(s for s in system if s)
+        parts: list[str] = []
+        augmented = _build_tools_system(system, tools)
+        if augmented:
+            parts.append(f"<system>\n{augmented}\n</system>")
+
+        for msg in messages:
+            if isinstance(msg, list):
+                for m in msg:
+                    parts.append(self._fmt_msg(m))
+            elif isinstance(msg, dict):
+                parts.append(self._fmt_msg(msg))
+
+        parts.append("Assistant:")
+        return "\n\n".join(parts)
+
+    # ── subprocess I/O ────────────────────────────────────────────
+
+    async def _run(self, prompt: str) -> str:
+        """Run the CLI command with the prompt.
+
+        If ``{}`` appears anywhere in the command, the prompt is injected
+        there as a positional argument (e.g. ``claude -p {}``).
+        Otherwise the prompt is written to stdin (e.g. ``ollama run model``).
+        """
+        # Strip CLAUDECODE so nested `claude -p` invocations are allowed
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
+        use_arg = "{}" in self._cmd
+        if use_arg:
+            cmd = [prompt if tok == "{}" else tok for tok in self._cmd]
+            stdin_data: bytes | None = None
+        else:
+            cmd = self._cmd
+            stdin_data = prompt.encode("utf-8")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE
+                if stdin_data is not None
+                else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await proc.communicate(stdin_data)
+            if proc.returncode != 0:
+                logger.warning(
+                    "CLI backend stderr: %s",
+                    stderr.decode("utf-8", errors="replace")[:300],
+                )
+            return stdout.decode("utf-8", errors="replace").strip()
+        except Exception as e:
+            logger.error("CLI backend failed: %s", e)
+            return f"[CLI backend error: {e}]"
+
+    # ── backend interface ─────────────────────────────────────────
+
+    async def stream_turn(
+        self,
+        system: str | tuple[str, str],
+        messages: list,
+        tools: list[dict],
+        max_tokens: int,
+        on_text: Callable[[str], None] | None,
+    ) -> tuple[TurnResult, Any]:
+        prompt = self._serialize(system, messages, tools)
+        text = await self._run(prompt)
+        if on_text:
+            on_text(text)
+        tool_calls = _parse_tool_calls_from_text(text)
+        clean_text = _TOOL_CALL_RE.sub("", text).strip()
+        stop = "tool_use" if tool_calls else "end_turn"
+        raw: dict[str, Any] = {"role": "assistant", "content": text}
+        return TurnResult(stop_reason=stop, text=clean_text, tool_calls=tool_calls), raw
+
+    async def complete(self, prompt: str, max_tokens: int) -> str:
+        return await self._run(prompt)
+
+
 def create_backend(
     config: "AgentConfig",
-) -> AnthropicBackend | OpenAICompatibleBackend | KimiBackend | GeminiBackend:
+) -> AnthropicBackend | OpenAICompatibleBackend | KimiBackend | GeminiBackend | CLIBackend:
     """Factory: pick backend based on PLATFORM env var / config.
 
     Supported values for PLATFORM:
@@ -792,6 +993,8 @@ def create_backend(
       gemini     — Google Gemini via native google-genai SDK
       openai     — OpenAI API (or compatible via BASE_URL)
       kimi       — Moonshot AI Kimi K2.5 (api.moonshot.ai/v1)
+      cli        — any CLI LLM tool via stdin/stdout (MODEL = the command)
+                   e.g. MODEL="claude -p"  or  MODEL="ollama run gemma3:27b"
     """
     if config.platform == "gemini":
         model = config.model or "gemini-2.5-flash"
@@ -803,7 +1006,15 @@ def create_backend(
         base_url = config.base_url
         if not os.environ.get("BASE_URL"):
             base_url = "https://api.openai.com/v1"
-        tools_mode = config.tools_mode if os.environ.get("TOOLS_MODE") else "native"
+        # Default to "prompt" for local/compatible endpoints; "native" only for real OpenAI.
+        # Local model servers (LM Studio, Ollama, vllm, etc.) often hang or timeout when
+        # they receive the `tools` parameter without proper support — causing Request timed out.
+        is_real_openai = "api.openai.com" in base_url
+        tools_mode = (
+            config.tools_mode
+            if os.environ.get("TOOLS_MODE")
+            else ("native" if is_real_openai else "prompt")
+        )
         logger.info(
             "Using OpenAI backend: %s @ %s (tools=%s)",
             model,
@@ -822,6 +1033,11 @@ def create_backend(
         model = config.model or "kimi-k2.5"
         logger.info("Using Kimi backend: %s", model)
         return KimiBackend(api_key=config.api_key, model=model)
+    if config.platform == "cli":
+        raw_cmd = config.model.strip() if config.model else "claude -p {}"
+        cmd = shlex.split(raw_cmd)
+        logger.info("Using CLI backend: %s", " ".join(cmd))
+        return CLIBackend(cmd)
     model = config.model or "claude-haiku-4-5-20251001"
     logger.info("Using Anthropic backend: %s", model)
     return AnthropicBackend(api_key=config.api_key, model=model)

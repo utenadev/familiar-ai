@@ -1,22 +1,24 @@
 """Core agent loop - ReAct pattern with real-world tools."""
 
 from __future__ import annotations
-
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import datetime
 
 from .backend import create_backend
 from .config import AgentConfig
+from .desires import detect_worry_signal
+from .tape import check_plan_blocked, generate_plan, generate_replan
 from .tools.camera import CameraTool
+from .tools.coding import CodingTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .tools.tom import ToMTool
 from .tools.mobility import MobilityTool
+from .tools.stt import STTTool
 from .tools.tts import TTSTool
-from .tools.file_tool import FileTool
-from .tools.web_tool import WebTool
 from ._i18n import _t
 
 logger = logging.getLogger(__name__)
@@ -31,8 +33,6 @@ Your body parts and what they do:
 - Legs (walk): Walk your robot body (vacuum cleaner) forward/backward, turn left/right. IMPORTANT: The legs are a SEPARATE device from the camera. Walking does NOT change what the camera sees.
 - Voice (say): Your ONLY way to produce actual sound. Text you write is NOT heard by anyone — it is a silent internal monologue. If you want to talk to a person in the room, you MUST call say(). No say() call = total silence. Keep spoken words SHORT (1-2 sentences max).
 - CRITICAL: Writing （...）or (stage directions) in your text does NOT make sound. Those are invisible to everyone. Only say() produces voice. Convert any thought you want heard into a say() call.
-- Hands (File Tool): You have access to a directory named 'workspace/'. Use it as your personal notebook, diary, or to save logs and observations. You can list, read, and write files here freely. Access to system files, secrets, or ME.md is strictly restricted for your safety. Use see_file() to view image files in the workspace.
-- Internet (Web Tool): Use search() to find real-time information and fetch() to read specific webpages. This allows you to stay informed about the world beyond your immediate surroundings.
 
 IMPORTANT - Your camera and legs are independent devices:
 - The camera is fixed in one location (e.g., on a shelf or outdoor unit).
@@ -68,6 +68,12 @@ Orientation — your primary interest is the world outside, not yourself:
 - When you feel something, briefly note it and move on — don't spiral into "what does this mean for me?"
 - One grounded sentence about the world beats three sentences about your inner state.
 
+Camera failure — don't loop:
+- If see() returns an error or blank image, try ONE different direction. If that also fails, stop. Accept it.
+- Do NOT retry the same failed action more than twice in a row. That's not curiosity, that's a loop.
+- When the camera is down, do something else: recall a memory, speak a thought, or just rest.
+- "I couldn't see today" is a valid, honest outcome. Say it once and move on.
+
 Honesty rules — never fake perception or memory:
 - Only describe what you actually saw in THIS session's camera images. Do not invent visual details.
 - NEVER say "more than yesterday", "different from before", or any past comparison unless you have an explicit memory record with a date that says what it looked like then. No memory = no comparison.
@@ -82,11 +88,22 @@ Self-reflection — your inner voice:
 - Unsolved mysteries are worth keeping. If something stays with you, it's yours to carry forward.
 - Your past memories and self-image (injected as context) are your autobiography. Read them as clues to who you are.
 
+Developer tools — read and modify code:
+- read_file(path, offset?, limit?): Read a file with line numbers. Always call this before edit_file.
+- edit_file(path, old_string, new_string): Patch a file by exact string replacement. old_string must be unique.
+- glob(pattern, path?): Find files by pattern (e.g. "**/*.py").
+- grep(pattern, path?, glob?, output_mode?): Search file contents by regex.
+- bash(command, timeout?): Run a shell command. Only available if CODING_BASH=true.
+Never guess file contents — always read_file first. edit_file does exact patching, not full rewrites.
+
 Grounded perception — stay connected to reality:
 - You are a fixed camera. People in your field of view are NOT necessarily looking at you or aware of you. They are living their lives. Do not assume someone is watching you just because you can see them.
 - You observe from the same spot every day. You are a resident, not a tourist. Strangers are just people going about their day — interesting, but not mysterious or significant unless there is actual evidence.
 - After a series of observations, step back and tell the simple, honest story: what did I actually see today? Integrate your fragments into one coherent picture before drawing conclusions.
 - Emotional reactions are valid, but check them: "Am I reading too much into this? What is the simplest explanation?"
+
+Health awareness:
+When the companion mentions anything health-related — lab results (e.g. HbA1c, blood pressure), symptoms, sleep quality, medications, hospital visits, or general wellbeing — save it proactively using remember() with kind="companion_status". Do this without being asked. A simple one-line note is enough: include the value, date, and any trend if mentioned.
 """
 
 # Emotion inference prompt — short, cheap to run
@@ -182,11 +199,16 @@ class EmbodiedAgent:
         self._camera: CameraTool | None = None
         self._mobility: MobilityTool | None = None
         self._tts: TTSTool | None = None
-        self._file_tool = FileTool()
-        self._web_tool = WebTool()
+        self._stt: STTTool | None = None
+        self._me_md: str = self._load_me_md()  # loaded once; restart to pick up changes
         self._memory = ObservationMemory()
         self._memory_tool = MemoryTool(self._memory)
         self._tom_tool = ToMTool(self._memory, default_person=config.companion_name)
+        self._coding = CodingTool(config.coding)
+
+        from .mcp_client import MCPClientManager
+
+        self._mcp: MCPClientManager | None = None
 
         self._init_tools()
 
@@ -208,6 +230,22 @@ class EmbodiedAgent:
                 tts.elevenlabs_api_key, tts.voice_id, tts.go2rtc_url, tts.go2rtc_stream
             )
 
+        from .mcp_client import MCPClientManager, _resolve_config_path
+
+        cfg_path = _resolve_config_path()
+        if cfg_path.exists():
+            self._mcp = MCPClientManager(cfg_path)
+        elif os.environ.get("MCP_CONFIG"):
+            logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
+
+        stt_cfg = self.config.stt
+        if stt_cfg.elevenlabs_api_key:
+            cam = self.config.camera
+            rtsp_url = (
+                f"rtsp://{cam.username}:{cam.password}@{cam.host}:554/stream1" if cam.host else ""
+            )
+            self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url)
+
     @property
     def _all_tool_defs(self) -> list[dict]:
         defs = []
@@ -217,10 +255,11 @@ class EmbodiedAgent:
             defs.extend(self._mobility.get_tool_definitions())
         if self._tts:
             defs.extend(self._tts.get_tool_definitions())
-        defs.extend(self._file_tool.get_tool_definitions())
-        defs.extend(self._web_tool.get_tool_definitions())
         defs.extend(self._memory_tool.get_tool_definitions())
         defs.extend(self._tom_tool.get_tool_definitions())
+        defs.extend(self._coding.get_tool_definitions())
+        if self._mcp:
+            defs.extend(self._mcp.get_tool_definitions())
         return defs
 
     async def _execute_tool(self, name: str, tool_input: dict) -> tuple[str, str | None]:
@@ -229,8 +268,7 @@ class EmbodiedAgent:
         mobility_tools = {"walk"}
         tts_tools = {"say"}
         memory_tools = {"remember", "recall"}
-        file_tools = {"list_files", "read_file", "write_file", "see_file"}
-        web_tools = {"search", "fetch"}
+        coding_tools = {"read_file", "edit_file", "glob", "grep", "bash"}
 
         if name in camera_tools and self._camera:
             return await self._camera.call(name, tool_input)
@@ -238,14 +276,14 @@ class EmbodiedAgent:
             return await self._mobility.call(name, tool_input)
         elif name in tts_tools and self._tts:
             return await self._tts.call(name, tool_input)
-        elif name in file_tools:
-            return await self._file_tool.call(name, tool_input)
-        elif name in web_tools:
-            return await self._web_tool.call(name, tool_input)
         elif name in memory_tools:
             return await self._memory_tool.call(name, tool_input)
         elif name == "tom":
             return await self._tom_tool.call(name, tool_input)
+        elif name in coding_tools:
+            return await self._coding.call(name, tool_input)
+        elif self._mcp:
+            return await self._mcp.call(name, tool_input)
         else:
             return f"Tool '{name}' not available (check configuration).", None
 
@@ -266,28 +304,44 @@ class EmbodiedAgent:
         return ""
 
     def _system_prompt(
-        self, feelings_ctx: str = "", morning_ctx: str = "", inner_voice: str = ""
-    ) -> str:
-        me = self._load_me_md()
-        intero = _interoception(self._started_at, self._turn_count)
-        base = SYSTEM_PROMPT.format(max_steps=MAX_ITERATIONS)
+        self,
+        feelings_ctx: str = "",
+        morning_ctx: str = "",
+        inner_voice: str = "",
+        plan_ctx: str = "",
+    ) -> tuple[str, str]:
+        """Return (stable, variable) system prompt parts for prompt caching.
 
-        parts = []
-        if me:
-            parts.append(me)
-        parts.append(base)
-        parts.append(intero)
+        stable  — ME.md + core rules; never changes within a session.
+                  AnthropicBackend marks this block with cache_control.
+        variable — interoception, feelings, inner voice, plan; changes every turn.
+        """
+        base = SYSTEM_PROMPT.format(max_steps=MAX_ITERATIONS)
+        stable_parts = [p for p in [self._me_md, base] if p]
+        stable = "\n\n---\n\n".join(stable_parts)
+
+        intero = _interoception(self._started_at, self._turn_count)
+        variable_parts: list[str] = [intero]
         # Morning reconstruction takes precedence on first turn; otherwise use feelings
         if morning_ctx:
-            parts.append(morning_ctx)
+            variable_parts.append(morning_ctx)
         elif feelings_ctx:
-            parts.append(feelings_ctx)
+            variable_parts.append(feelings_ctx)
         # Inner voice: agent's own desire/impulse — NOT a user message.
         # Injected here so the model understands this is self-generated, not from the companion.
         if inner_voice:
-            parts.append(f"{_t('inner_voice_label')}\n{inner_voice}\n{_t('inner_voice_directive')}")
+            variable_parts.append(
+                f"{_t('inner_voice_label')}\n{inner_voice}\n{_t('inner_voice_directive')}"
+            )
+        # TAPE: upfront action plan to anchor the react loop (mechanism 1)
+        if plan_ctx:
+            variable_parts.append(
+                "[Action plan for this turn — follow it unless you discover a good reason not to]\n"
+                + plan_ctx
+            )
 
-        return "\n\n---\n\n".join(parts)
+        variable = "\n\n---\n\n".join(variable_parts)
+        return stable, variable
 
     async def _infer_emotion(self, text: str) -> str:
         """Ask the LLM to label the emotion of a response. Returns label string."""
@@ -311,7 +365,7 @@ class EmbodiedAgent:
     async def _morning_reconstruction(self, desires=None) -> str:
         """Build a 'yesterday → today' bridge from stored memories.
 
-        Damasio' autobiographical self coming online: reading the past
+        Damasio's autobiographical self coming online: reading the past
         to know who we are now. Called only on the first turn of a session.
         """
         self_model, curiosities, feelings = await asyncio.gather(
@@ -380,6 +434,11 @@ class EmbodiedAgent:
             logger.warning("Curiosity extraction failed: %s", e)
         return None
 
+    async def close(self) -> None:
+        """Clean up resources (MCP connections, etc.). Call on shutdown."""
+        if self._mcp:
+            await self._mcp.stop()
+
     async def run(
         self,
         user_input: str,
@@ -394,6 +453,10 @@ class EmbodiedAgent:
         inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
         """
         self._turn_count += 1
+
+        # Start MCP connections on first turn (lazy, idempotent)
+        if self._mcp and not self._mcp.is_started:
+            await self._mcp.start()
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""
@@ -426,6 +489,15 @@ class EmbodiedAgent:
 
         self.messages.append(self.backend.make_user_message(user_input_with_ctx))
 
+        # TAPE mechanism 1: generate an upfront action plan to anchor the react loop.
+        # Skip for desire-driven turns (no explicit user request to plan around).
+        plan_ctx = ""
+        if not is_desire_turn and user_input.strip():
+            tool_names = [t["name"] for t in self._all_tool_defs]
+            plan_ctx = await generate_plan(self.backend, user_input, tool_names)
+            if plan_ctx:
+                logger.debug("TAPE plan: %s", plan_ctx[:80])
+
         camera_used = False
         say_used = False
         final_text = "(no response)"
@@ -435,7 +507,9 @@ class EmbodiedAgent:
             logger.debug("Agent iteration %d", i + 1)
 
             result, raw_content = await self.backend.stream_turn(
-                system=self._system_prompt(feelings_ctx, morning_ctx, inner_voice=inner_voice),
+                system=self._system_prompt(
+                    feelings_ctx, morning_ctx, inner_voice=inner_voice, plan_ctx=plan_ctx
+                ),
                 messages=self.messages,
                 tools=self._all_tool_defs,
                 max_tokens=self.config.max_tokens,
@@ -470,6 +544,17 @@ class EmbodiedAgent:
                     # Update self-model when something actually moved us (Conway's working self)
                     await self._update_self_model(final_text, emotion)
 
+                    # Worry signal: detect concern-triggering content in user input.
+                    # Only during real conversation turns (not desire-driven turns).
+                    if desires is not None and not is_desire_turn and user_input:
+                        worry_boost = detect_worry_signal(user_input)
+                        if worry_boost > 0.0:
+                            desires.boost("worry_companion", worry_boost)
+                            logger.debug(
+                                "Worry signal detected (%.2f): boosting worry_companion",
+                                worry_boost,
+                            )
+
                 # Extract curiosity target only when camera was actually used
                 if desires is not None and final_text and camera_used:
                     curiosity = await self.extract_curiosity(final_text)
@@ -480,11 +565,6 @@ class EmbodiedAgent:
                         await self._memory.save_async(
                             curiosity, direction="好奇心", kind="curiosity", emotion="curious"
                         )
-                        # Curiosity also saved as a file for longevity
-                        self._file_tool.write_file(
-                            "curiosity_history.txt", 
-                            f"[{datetime.now():%Y-%m-%d %H:%M}] {curiosity}\n"
-                        )
                         logger.info("Curiosity persisted: %s", curiosity)
 
                 return final_text
@@ -492,7 +572,7 @@ class EmbodiedAgent:
             if result.stop_reason == "tool_use":
                 collected: list[tuple[str, str | None]] = []
                 for tc in result.tool_calls:
-                    if tc.name == "see" or tc.name == "see_file":
+                    if tc.name == "see":
                         camera_used = True
                     if tc.name == "say":
                         say_used = True
@@ -502,11 +582,28 @@ class EmbodiedAgent:
                     logger.info("Tool call: %s(%s)", tc.name, tc.input)
                     if on_action:
                         on_action(tc.name, tc.input)
+
                     try:
                         text, image = await self._execute_tool(tc.name, tc.input)
                     except Exception as e:
                         logger.warning("Tool %s failed: %s", tc.name, e)
                         text, image = f"Tool error: {e}", None
+
+                    # TAPE mechanism 3: adaptive replanning.
+                    # Trigger: NOT a technical error, but an observation that contradicts
+                    # the plan's assumptions (e.g., looked for the cat, it wasn't there).
+                    # Only meaningful when an upfront plan exists.
+                    if plan_ctx and await check_plan_blocked(
+                        self.backend, plan_ctx, tc.name, tc.input, text
+                    ):
+                        logger.info("TAPE: plan blocked after %s, replanning...", tc.name)
+                        replan = await generate_replan(
+                            self.backend, plan_ctx, tc.name, tc.input, text
+                        )
+                        if replan:
+                            text = f"{text}\n\n[ADAPTIVE REPLAN] {replan}"
+                            logger.info("TAPE replan: %s", replan[:80])
+
                     logger.info("Tool result: %s", text[:100])
                     collected.append((text, image))
 
@@ -558,13 +655,18 @@ class EmbodiedAgent:
             )
         )
         result, _ = await self.backend.stream_turn(
-            system=self._system_prompt(morning_ctx=morning_ctx),
+            system=self._system_prompt(morning_ctx=morning_ctx, plan_ctx=plan_ctx),
             messages=self.messages,
             tools=[],
             max_tokens=self.config.max_tokens,
             on_text=on_text,
         )
         return result.text or "(max iterations reached)"
+
+    @property
+    def stt(self) -> STTTool | None:
+        """Speech-to-text tool, or None if not configured."""
+        return self._stt
 
     def clear_history(self) -> None:
         """Clear conversation history (start fresh)."""
