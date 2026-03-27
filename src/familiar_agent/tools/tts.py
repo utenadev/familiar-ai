@@ -6,7 +6,10 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import struct
 import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -14,8 +17,58 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
+
+def _write_pcm_as_wav(
+    pcm_bytes: bytes, sample_rate: int = 16000, tmp_dir: str | None = None
+) -> str:
+    """Write raw 16-bit mono PCM bytes to a temp WAV file and return the path.
+
+    Builds the 44-byte WAV/RIFF header without any external dependency.
+    """
+    num_channels = 1
+    bits_per_sample = 16
+    byte_rate = sample_rate * num_channels * bits_per_sample // 8
+    block_align = num_channels * bits_per_sample // 8
+    data_size = len(pcm_bytes)
+    file_size = 36 + data_size  # RIFF chunk size = file_size - 8
+
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        file_size,
+        b"WAVE",
+        b"fmt ",
+        16,  # fmt chunk size
+        1,  # PCM format
+        num_channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+        b"data",
+        data_size,
+    )
+
+    suffix = ".wav"
+    kwargs: dict = {"suffix": suffix, "delete": False}
+    if tmp_dir:
+        kwargs["dir"] = tmp_dir
+    with tempfile.NamedTemporaryFile(**kwargs) as f:
+        f.write(header)
+        f.write(pcm_bytes)
+        return f.name
+
+
+def _write_tmp_audio(data: bytes, suffix: str = ".mp3") -> str:
+    """Write raw audio bytes to a temp file and return the path."""
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        f.write(data)
+        return f.name
+
+
 _GO2RTC_CACHE = Path.home() / ".cache" / "embodied-claude" / "go2rtc"
-_GO2RTC_BIN = _GO2RTC_CACHE / "go2rtc"
+# On Windows the binary is go2rtc.exe; on other platforms there is no extension.
+_GO2RTC_BIN = _GO2RTC_CACHE / ("go2rtc.exe" if sys.platform == "win32" else "go2rtc")
 _GO2RTC_CONFIG = _GO2RTC_CACHE / "go2rtc.yaml"
 
 
@@ -54,7 +107,7 @@ def _ensure_go2rtc(api_url: str) -> None:
 
 
 class TTSTool:
-    """Text-to-speech using ElevenLabs, played via go2rtc camera speaker."""
+    """Text-to-speech using ElevenLabs, played via go2rtc camera speaker and/or local speaker."""
 
     def __init__(
         self,
@@ -62,88 +115,94 @@ class TTSTool:
         voice_id: str,
         go2rtc_url: str = "http://localhost:1984",
         go2rtc_stream: str = "tapo_cam",
+        output: str = "local",
     ) -> None:
         self.api_key = api_key
         self.voice_id = voice_id
         self.go2rtc_url = go2rtc_url
         self.go2rtc_stream = go2rtc_stream
+        # "local" = PC speaker only, "remote" = camera speaker only, "both" = both simultaneously
+        self.output = output
+        # Serialize concurrent say() calls so audio never overlaps
+        self._lock = asyncio.Lock()
         # Ensure go2rtc is running at startup
         _ensure_go2rtc(self.go2rtc_url)
 
-    async def say(self, text: str, target: str = "myself") -> str:
+    async def say(self, text: str, output: str | None = None) -> str:
         """Speak text aloud via ElevenLabs.
 
-        target: "myself" = camera speaker (go2rtc), "speaker" = PC local speaker.
+        output: "local" = PC speaker, "remote" = camera speaker (go2rtc), "both" = both.
+                Defaults to self.output when not specified.
+
+        Concurrent calls are serialized via self._lock so audio never overlaps.
         """
         import aiohttp
 
+        if output is None:
+            output = self.output
         if len(text) > 200:
             text = text[:197] + "..."
 
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}"
-        headers = {
-            "xi-api-key": self.api_key,
-            "Content-Type": "application/json",
-        }
+        headers = {"xi-api-key": self.api_key, "Content-Type": "application/json"}
         payload = {
             "text": text,
-            "model_id": "eleven_flash_v2_5",
+            "model_id": "eleven_v3",
+            "output_format": "pcm_16000",  # raw 16-bit mono PCM — no ffmpeg conversion needed
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as resp:
-                if resp.status != 200:
-                    err = await resp.text()
-                    return f"TTS API failed ({resp.status}): {err[:80]}"
-                audio_data = await resp.read()
+        async with self._lock:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    if resp.status != 200:
+                        err = await resp.text()
+                        return f"TTS API failed ({resp.status}): {err[:80]}"
+                    content_type = resp.headers.get("Content-Type", "")
+                    audio_data = await resp.read()
 
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-            f.write(audio_data)
-            tmp_path = f.name
+            # ElevenLabs may return MP3 even when PCM was requested (model-dependent).
+            # Detect by content-type and save to the correct format.
+            is_mp3 = "mpeg" in content_type or audio_data[:3] in (b"ID3", b"\xff\xfb", b"\xff\xf3")
+            if is_mp3:
+                tmp_path = _write_tmp_audio(audio_data, suffix=".mp3")
+            else:
+                tmp_path = _write_pcm_as_wav(audio_data, sample_rate=16000)
 
-        try:
-            if target != "speaker":
-                ok, msg = await asyncio.to_thread(
-                    _play_via_go2rtc, tmp_path, self.go2rtc_url, self.go2rtc_stream
-                )
-                if ok:
-                    return f"Said: {text[:50]}..."
-                logger.warning("go2rtc playback failed: %s — falling back to local", msg)
-
-            # Local player (used directly for "speaker", or as fallback for "myself")
-            for player_args in (
-                ["mpv", "--no-terminal", "--ao=pulse", tmp_path],
-                ["mpv", "--no-terminal", tmp_path],
-                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", tmp_path],
-            ):
-                proc = await asyncio.create_subprocess_exec(
-                    *player_args,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await proc.communicate()
-                if proc.returncode == 0:
-                    return f"Said: {text[:50]}..."
-                err = stderr.decode(errors="replace").strip()
-                logger.warning(
-                    "%s failed (exit %d): %s", player_args[0], proc.returncode, err[:120]
-                )
-
-            return "TTS playback failed (all players failed)"
-        finally:
             try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+                played_via: list[str] = []
+
+                if output in ("remote", "both"):
+                    ok, msg = await asyncio.to_thread(
+                        _play_via_go2rtc, tmp_path, self.go2rtc_url, self.go2rtc_stream
+                    )
+                    if ok:
+                        played_via.append("camera")
+                    else:
+                        logger.warning("go2rtc playback failed: %s", msg)
+                        if output == "remote":
+                            return f"TTS remote playback failed: {msg}"
+
+                if output in ("local", "both") or (output == "remote" and not played_via):
+                    local_ok = await _play_local(tmp_path)
+                    if local_ok:
+                        played_via.append("local")
+
+                if not played_via:
+                    return "TTS playback failed (no working audio player found)"
+                return f"Said: {text[:50]}... (via {', '.join(played_via)})"
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     def get_tool_definitions(self) -> list[dict]:
         return [
             {
                 "name": "say",
                 "description": (
-                    "Speak text aloud through your camera speaker. "
-                    "Use this to communicate with people in the room."
+                    "Speak text aloud. Use this to communicate with people in the room."
                 ),
                 "input_schema": {
                     "type": "object",
@@ -160,9 +219,182 @@ class TTSTool:
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name == "say":
-            result = await self.say(tool_input["text"], "myself")
+            result = await self.say(tool_input["text"])
             return result, None
         return f"Unknown tool: {tool_name}", None
+
+
+def _pulse_env() -> dict[str, str] | None:
+    """Build env dict with PULSE_SERVER/PULSE_SINK if set. Returns None if neither is set."""
+    server = os.environ.get("PULSE_SERVER")
+    sink = os.environ.get("PULSE_SINK")
+    if not server and not sink:
+        return None
+    env = os.environ.copy()
+    if server:
+        env["PULSE_SERVER"] = server
+    if sink:
+        env["PULSE_SINK"] = sink
+    return env
+
+
+async def _play_via_sounddevice(audio_path: str) -> bool:
+    """Play WAV or MP3 file using sounddevice (pure Python, no system dependency).
+
+    WAV: decoded by soundfile directly.
+    MP3: decoded frame-by-frame with PyAV (av package), then played via sounddevice.
+    """
+
+    def _play() -> bool:
+        if audio_path.lower().endswith(".mp3"):
+            # On Windows prefer MCI (reliable, built-in) over PyAV+sounddevice
+            if sys.platform == "win32" and _play_mp3_mci(audio_path):
+                return True
+            return _play_mp3_via_pyav(audio_path)
+        else:
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+            except ImportError:
+                return False
+            try:
+                data, samplerate = sf.read(audio_path)
+                sd.play(data, samplerate)
+                sd.wait()
+                return True
+            except Exception as e:
+                logger.warning("sounddevice/soundfile WAV playback failed: %s", e)
+                return False
+
+    return await asyncio.to_thread(_play)
+
+
+def _play_mp3_mci(mp3_path: str) -> bool:
+    """Play MP3 using Windows MCI (Media Control Interface) via ctypes. Windows only.
+
+    MCI is built into Windows — no extra dependencies, supports MP3 natively.
+    """
+    try:
+        import ctypes
+
+        winmm = ctypes.windll.winmm  # type: ignore[attr-defined]
+        alias = "familiar_tts"
+        abs_path = os.path.abspath(mp3_path)
+        winmm.mciSendStringW(f"close {alias}", None, 0, None)  # clean up any prior
+        ret = winmm.mciSendStringW(f'open "{abs_path}" type mpegvideo alias {alias}', None, 0, None)
+        if ret != 0:
+            logger.warning("MCI open failed (ret=%d)", ret)
+            return False
+        winmm.mciSendStringW(f"play {alias} wait", None, 0, None)
+        winmm.mciSendStringW(f"close {alias}", None, 0, None)
+        return True
+    except Exception as e:
+        logger.warning("MCI playback failed: %s", e)
+        return False
+
+
+def _play_mp3_via_pyav(mp3_path: str) -> bool:
+    """Decode MP3 with PyAV to s16 PCM, play via sounddevice.
+
+    Uses s16 interleaved stereo (simpler than fltp planar) for cross-platform reliability.
+    """
+    try:
+        import av
+        import numpy as np
+        import sounddevice as sd
+    except ImportError:
+        logger.warning("PyAV, numpy, or sounddevice not available for MP3 decoding")
+        return False
+    try:
+        TARGET_RATE = 44100
+        container = av.open(mp3_path)
+        audio_stream = next((s for s in container.streams if s.type == "audio"), None)
+        if audio_stream is None:
+            container.close()
+            return False
+
+        # Resample to s16p mono @ TARGET_RATE — planar mono avoids stereo packing ambiguity
+        resampler = av.AudioResampler(format="s16p", layout="mono", rate=TARGET_RATE)
+        chunks_nd: list = []
+
+        for frame in container.decode(audio_stream):
+            if not isinstance(frame, av.AudioFrame):
+                continue
+            for rf in resampler.resample(frame):
+                chunks_nd.append(rf.to_ndarray())  # shape: (1, n_samples)
+
+        # Flush resampler
+        for rf in resampler.resample(None):
+            chunks_nd.append(rf.to_ndarray())
+
+        container.close()
+        if not chunks_nd:
+            return False
+
+        # Concatenate along samples axis → (1, total_samples) → flatten to (total_samples,)
+        audio = np.concatenate(chunks_nd, axis=1).flatten().astype(np.float32) / 32768.0
+        sd.play(audio, TARGET_RATE)
+        sd.wait()
+        return True
+    except Exception as e:
+        logger.warning("PyAV MP3 playback failed: %s", e)
+        return False
+
+
+async def _play_local(tmp_path: str) -> bool:
+    """Play audio file on the local PC speaker. Returns True on success.
+
+    Try order:
+    1. paplay (PulseAudio native — most reliable on WSL2/WSLg when PULSE_SERVER is set)
+    2. mpv (auto audio backend selection)
+    3. sounddevice (pure Python fallback, no system tools required)
+
+    Note: file is always WAV (pcm_16000) so paplay needs no ffmpeg conversion.
+    """
+    pulse_env = _pulse_env()
+
+    # --- paplay (PulseAudio native, WAV only) ---
+    paplay = shutil.which("paplay")
+    if paplay and tmp_path.lower().endswith((".wav", ".wave")):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                paplay,
+                tmp_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+                env=pulse_env,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                return True
+            err = stderr.decode(errors="replace").strip()
+            logger.warning("paplay failed (exit %d): %s", proc.returncode, err[:120])
+        except (FileNotFoundError, OSError) as e:
+            logger.warning("Could not launch paplay: %s", e)
+
+    # --- mpv ---
+    mpv = shutil.which("mpv")
+    if mpv:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                mpv,
+                "--no-terminal",
+                tmp_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+                env=pulse_env,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                return True
+            logger.warning(
+                "mpv failed (exit %d): %s", proc.returncode, stderr.decode(errors="replace")[:120]
+            )
+        except (FileNotFoundError, OSError) as e:
+            logger.warning("Could not launch mpv: %s", e)
+
+    # --- sounddevice (pure Python, no system dependency) ---
+    return await _play_via_sounddevice(tmp_path)
 
 
 def _play_via_go2rtc(file_path: str, go2rtc_url: str, stream_name: str) -> tuple[bool, str]:

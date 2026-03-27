@@ -2,18 +2,32 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+import logging
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .memory import ObservationMemory
+    from ..workspace import Coalition
+
+logger = logging.getLogger(__name__)
 
 
 class ToMTool:
     """Theory of Mind: perspective-taking to understand what the other person feels and wants."""
 
-    def __init__(self, memory: "ObservationMemory", default_person: str = "Alex") -> None:
+    def __init__(
+        self,
+        memory: "ObservationMemory",
+        default_person: str = "Alex",
+        backend: Any | None = None,
+    ) -> None:
         self._memory = memory
         self._default_person = default_person
+        self._backend = backend
+        self._last_situation: str | None = None
+        self._last_person: str | None = None
+        self._last_policy: str | None = None
 
     def get_tool_definitions(self) -> list[dict]:
         return [
@@ -57,7 +71,93 @@ class ToMTool:
             lines = [f"- [{m.get('emotion', 'neutral')}] {m['summary']}" for m in memories]
             memory_context = f"\n## {person}に関する記憶\n" + "\n".join(lines)
 
-        output = (
+        # No backend → return static template (backward compatible)
+        if self._backend is None:
+            result = self._template_output(situation, person, memory_context)
+        else:
+            # LLM-based inference
+            result = await self._llm_inference(situation, person, memory_context)
+
+        # Track last inference for workspace coalition
+        self._last_situation = situation
+        self._last_person = person
+        # Extract policy line if present
+        for line in result.splitlines():
+            if "policy" in line.lower() or "応答方針" in line:
+                self._last_policy = line.strip()
+                break
+        else:
+            self._last_policy = situation[:80]
+
+        return result, None
+
+    async def _llm_inference(self, situation: str, person: str, memory_context: str) -> str:
+        assert self._backend is not None  # caller ensures this
+        prompt = (
+            f"You are a Theory of Mind reasoning engine. "
+            f"Analyze what {person} is likely feeling and wanting based on the situation below.\n\n"
+            f"Situation: {situation}\n"
+            f"{memory_context}\n\n"
+            f"Respond with ONLY valid JSON in this exact format:\n"
+            f"{{\n"
+            f'  "evidence": ["list of behavioral or textual signals you observed"],\n'
+            f'  "inference": [\n'
+            f'    {{"state": "what they feel or want", "confidence": 0.0}}\n'
+            f"  ],\n"
+            f'  "policy": "how to respond — tone, content, what to avoid"\n'
+            f"}}"
+        )
+
+        try:
+            raw = await self._backend.complete(prompt, 512)
+        except Exception as exc:
+            logger.warning("ToM backend call failed: %s", exc)
+            return self._template_output(situation, person, memory_context)
+
+        return self._format_response(raw, person)
+
+    def _format_response(self, raw: str, person: str) -> str:
+        """Parse JSON response and format as readable ToM output."""
+        # Strip markdown code fences if present
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Fallback: wrap raw text in minimal structure
+            return f"# ToM: {person}の視点分析\n\n{raw}"
+
+        parts = [f"# ToM: {person}の視点分析\n"]
+
+        evidence = data.get("evidence", [])
+        if evidence:
+            parts.append("## エビデンス（観察されたシグナル）")
+            for item in evidence:
+                parts.append(f"- {item}")
+            parts.append("")
+
+        inference = data.get("inference", [])
+        if inference:
+            parts.append("## 推論（心的状態と確信度）")
+            for item in inference:
+                state = item.get("state", "")
+                conf = item.get("confidence", 0.0)
+                parts.append(f"- {state} ({conf:.1f})")
+            parts.append("")
+
+        policy = data.get("policy", "")
+        if policy:
+            parts.append("## 応答方針")
+            parts.append(policy)
+
+        return "\n".join(parts)
+
+    def _template_output(self, situation: str, person: str, memory_context: str) -> str:
+        """Static template fallback (original behavior when no backend)."""
+        return (
             f"# ToM: {person}の視点に立つ\n"
             f"\n"
             f"## 状況\n"
@@ -79,4 +179,25 @@ class ToMTool:
             f"→ 上の結果を踏まえて、どう返すべきか決めよ\n"
             f"→ 相手のトーンに合わせた返し方を選べ\n"
         )
-        return output, None
+
+    def as_coalition(self) -> Coalition | None:
+        """Return a workspace Coalition from the most recent ToM inference."""
+        from ..workspace import Coalition
+
+        if self._last_situation is None:
+            return None
+
+        person = self._last_person or self._default_person
+        summary = f"ToM: {person} — {(self._last_situation or '')[:60]}"
+        context = (
+            f"[ToM: {person}]\nSituation: {self._last_situation}\nPolicy: {self._last_policy or ''}"
+        )
+
+        return Coalition(
+            source="tom",
+            summary=summary,
+            activation=0.5,
+            urgency=0.6,
+            novelty=0.2,
+            context_block=context,
+        )

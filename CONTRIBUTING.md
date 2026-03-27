@@ -1,11 +1,34 @@
 # Contributing to familiar-ai
 
-Thank you for your interest! Here's how to get started.
+familiar-ai is an open experiment in giving AI a physical presence — eyes, voice, legs, memory, and something like desires. If that sounds interesting to you, welcome.
+
+## What we're exploring
+
+- **Embodied cognition** — does grounding an LLM in real-world perception change how it behaves?
+- **Autonomous behavior** — internal drive systems that make the agent act without being asked
+- **Persistent identity** — memory and self-model that survive across sessions
+- **Accessible hardware** — anything that works, starting at $30
+
+No background in robotics or ML required. If you can write Python and you find this interesting, you can contribute.
+
+## What the project needs
+
+| Area | Concrete ideas |
+|------|----------------|
+| **Hardware support** | More cameras (generic RTSP, IP Webcam app), microphones, smart home devices |
+| **Tools** | Web search, calendar, home automation, anything via MCP server |
+| **LLM backends** | New providers, better streaming, vision model support |
+| **Persona templates** | ME.md starters for more languages and personality types |
+| **Memory / cognition** | Better retrieval, episodic memory, curiosity-driven exploration |
+| **Tests** | More coverage, integration tests, hardware mocks |
+| **Docs & tutorials** | Setup walkthroughs, video guides, translations |
+
+If you have an idea that doesn't fit the list, open an issue and let's talk.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/kmizu/familiar-ai
+git clone https://github.com/lifemate-ai/familiar-ai
 cd familiar-ai
 uv sync
 
@@ -22,6 +45,17 @@ uv run pytest -v           # tests
 ```
 
 All three must pass cleanly.
+
+## Database migrations
+
+When changing SQLite schema/data, add a new migration script under `migration/`.
+
+```bash
+scripts/new_migration.sh add_memory_jobs_table
+# => migration/YYYY-MM-DD-XXX_add_memory_jobs_table.py
+```
+
+Then implement `upgrade(conn)` in the generated file. Migrations are applied automatically at startup and tracked in `schema_migrations`.
 
 ## Commit messages
 
@@ -48,4 +82,4 @@ chore: bump anthropic to 0.42.0
 
 ## Questions?
 
-Open an issue — we're happy to help.
+[Open an issue](https://github.com/lifemate-ai/familiar-ai/issues) — we're happy to help.

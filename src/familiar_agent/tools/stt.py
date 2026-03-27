@@ -1,0 +1,250 @@
+"""Speech-to-Text tool using ElevenLabs Scribe API.
+
+Records audio from:
+1. Local PC microphone (via sounddevice) — primary
+2. Camera RTSP stream (via PyAV) — fallback when no mic is available
+
+Transcription is done via the ElevenLabs /v1/speech-to-text endpoint.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import logging
+import time
+from typing import TYPE_CHECKING
+
+import contextlib
+import ctypes
+import os
+
+import aiohttp
+
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger(__name__)
+
+_CHANNELS = 1  # mono
+_ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+
+
+@contextlib.contextmanager
+def _suppress_alsa_errors():
+    """Suppress ALSA/PortAudio error messages that pollute the terminal.
+
+    On WSL2 and some Linux setups, ALSA writes error messages directly to
+    /dev/tty (not stderr). When Textual holds the TTY in raw mode, these
+    non-UTF-8 bytes cause a UnicodeDecodeError crash. This context manager
+    silences them via the ALSA error handler API and by briefly redirecting
+    file descriptors 1 and 2.
+    """
+    # --- ctypes: replace ALSA's error handler with a no-op ---
+    try:
+        _ErrorHandlerFunc = ctypes.CFUNCTYPE(
+            None,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+        )
+        _noop_handler = _ErrorHandlerFunc(lambda *_: None)
+        _asound = ctypes.cdll.LoadLibrary("libasound.so.2")
+        _asound.snd_lib_error_set_handler(_noop_handler)
+        _alsa_silenced = True
+    except Exception:
+        _alsa_silenced = False
+
+    # --- fd-level redirect: send fd2 (stderr) to /dev/null ---
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    old_stderr_fd = os.dup(2)
+    os.dup2(devnull_fd, 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        os.close(devnull_fd)
+        # Restore default ALSA error handler
+        if _alsa_silenced:
+            try:
+                _asound.snd_lib_error_set_handler(None)
+            except Exception:
+                pass
+
+
+class STTTool:
+    """Record audio and transcribe via ElevenLabs Scribe."""
+
+    def __init__(self, api_key: str, language: str = "ja", rtsp_url: str = "") -> None:
+        self._api_key = api_key
+        self._language = language
+        self._rtsp_url = rtsp_url
+
+    # ── public API ────────────────────────────────────────────────────────
+
+    async def record_and_transcribe(self, stop_event: asyncio.Event) -> str:
+        """Record until stop_event is set, then transcribe and return text."""
+        # Try PC mic first
+        audio_bytes = await asyncio.to_thread(self._record_mic, stop_event)
+
+        # Fallback to RTSP camera mic
+        if audio_bytes is None and self._rtsp_url:
+            logger.info("STT: no local mic, falling back to RTSP camera mic")
+            audio_bytes = await self._record_rtsp(stop_event)
+
+        if not audio_bytes:
+            return ""
+
+        return await self._transcribe_elevenlabs(audio_bytes)
+
+    # ── recording helpers ─────────────────────────────────────────────────
+
+    def _record_mic(self, stop_event: asyncio.Event) -> bytes | None:
+        """Block and record from the default microphone until stop_event is set.
+
+        Returns WAV bytes, or None if no microphone is available.
+        """
+        try:
+            import numpy as np
+            import sounddevice as sd
+            import soundfile as sf
+        except ImportError:
+            logger.warning("STT: sounddevice/soundfile not installed")
+            return None
+
+        chunks: list = []
+
+        try:
+            with _suppress_alsa_errors():
+                # Use the device's native sample rate to avoid paInvalidSampleRate errors
+                device_info = sd.query_devices(kind="input")
+                sample_rate = int(device_info["default_samplerate"])
+
+                with sd.InputStream(
+                    samplerate=sample_rate,
+                    channels=_CHANNELS,
+                    dtype="float32",
+                ) as stream:
+                    logger.info("STT: recording from local mic at %dHz...", sample_rate)
+                    start = time.time()
+                    while not stop_event.is_set() and time.time() - start < 60:
+                        chunk, _ = stream.read(1024)
+                        chunks.append(chunk)
+                        time.sleep(0.01)  # yield slightly; this is already in a thread
+        except sd.PortAudioError as e:
+            logger.warning("STT: PortAudio error (no mic?): %s", e)
+            return None
+
+        if not chunks:
+            return None
+
+        audio = np.concatenate(chunks, axis=0)
+        buf = io.BytesIO()
+        sf.write(buf, audio, sample_rate, format="WAV", subtype="PCM_16")
+        return buf.getvalue()
+
+    async def _record_rtsp(self, stop_event: asyncio.Event) -> bytes:
+        """Record audio from the RTSP stream using PyAV until stop_event is set.
+
+        PyAV (pip install av) ships pre-built wheels with bundled ffmpeg libs —
+        no system ffmpeg installation required.
+        """
+
+        def _record_sync() -> bytes:
+            try:
+                import av
+            except ImportError:
+                logger.warning("STT: PyAV (av) not installed — RTSP audio unavailable")
+                return b""
+
+            try:
+                import numpy as np
+                import soundfile as sf
+            except ImportError:
+                logger.warning("STT: numpy/soundfile not installed")
+                return b""
+
+            try:
+                container = av.open(
+                    self._rtsp_url,
+                    options={"rtsp_transport": "tcp"},
+                )
+            except Exception as e:
+                logger.warning("STT: RTSP connection failed: %s", e)
+                return b""
+
+            try:
+                audio_stream = next((s for s in container.streams if s.type == "audio"), None)
+                if audio_stream is None:
+                    logger.warning("STT: RTSP stream has no audio track")
+                    return b""
+
+                resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+                chunks: list = []
+                start = time.time()
+
+                for frame in container.decode(audio_stream):
+                    if stop_event.is_set():
+                        break
+                    if time.time() - start > 60:
+                        break
+                    if not hasattr(frame, "to_ndarray"):
+                        continue
+                    for resampled in resampler.resample(frame):  # type: ignore[arg-type]
+                        chunks.append(resampled.to_ndarray())
+            except Exception as e:
+                logger.warning("STT: RTSP decode error: %s", e)
+                return b""
+            finally:
+                container.close()
+
+            if not chunks:
+                return b""
+
+            audio = np.concatenate(chunks, axis=0)
+            buf = io.BytesIO()
+            sf.write(buf, audio.flatten(), 16000, format="WAV", subtype="PCM_16")
+            duration = len(audio.flatten()) / 16000
+            logger.info("STT: RTSP recording captured %.1fs of audio", duration)
+            return buf.getvalue()
+
+        return await asyncio.to_thread(_record_sync)
+
+    # ── transcription ─────────────────────────────────────────────────────
+
+    async def _transcribe_elevenlabs(self, audio_bytes: bytes) -> str:
+        """Send audio to ElevenLabs Scribe and return the transcript."""
+        if not audio_bytes:
+            return ""
+
+        headers = {"xi-api-key": self._api_key}
+        form = aiohttp.FormData()
+        form.add_field(
+            "file",
+            audio_bytes,
+            filename="audio.wav",
+            content_type="audio/wav",
+        )
+        form.add_field("model_id", "scribe_v1")
+        form.add_field("tag_audio_events", "false")
+        if self._language:
+            form.add_field("language_code", self._language)
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(_ELEVENLABS_STT_URL, headers=headers, data=form) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        logger.warning("STT: ElevenLabs error %d: %s", resp.status, body[:200])
+                        return ""
+                    data = await resp.json()
+                    text: str = data.get("text", "")
+                    logger.info("STT: transcribed %d chars", len(text))
+                    return text
+        except Exception as e:
+            logger.warning("STT: transcription failed: %s", e)
+            return ""

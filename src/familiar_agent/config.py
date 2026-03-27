@@ -17,28 +17,69 @@ def _default_companion_name() -> str:
     return _t("default_companion_name")
 
 
+def _env_value(*names: str, default: str = "") -> str:
+    """Return the first present env var, preserving explicit empty strings."""
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            return value
+    return default
+
+
+def _optional_int_env(*names: str) -> int | None:
+    value = _env_value(*names, default="")
+    if not value:
+        return None
+    return int(value)
+
+
 @dataclass
 class CameraConfig:
     host: str = field(
-        default_factory=lambda: os.environ.get(
-            "CAMERA_HOST", os.environ.get("TAPO_CAMERA_HOST", "")
-        )
+        default_factory=lambda: _env_value("CAMERA_HOST", "TAPO_CAMERA_HOST", default="")
     )
     username: str = field(
-        default_factory=lambda: os.environ.get(
-            "CAMERA_USERNAME", os.environ.get("TAPO_USERNAME", "admin")
-        )
+        default_factory=lambda: _env_value("CAMERA_USERNAME", "TAPO_USERNAME", default="admin")
     )
     password: str = field(
-        default_factory=lambda: os.environ.get(
-            "CAMERA_PASSWORD", os.environ.get("TAPO_PASSWORD", "")
-        )
+        default_factory=lambda: _env_value("CAMERA_PASSWORD", "TAPO_PASSWORD", default="")
     )
     port: int = field(
         default_factory=lambda: int(
-            os.environ.get("CAMERA_ONVIF_PORT", os.environ.get("TAPO_ONVIF_PORT", "2020"))
+            _env_value("CAMERA_ONVIF_PORT", "TAPO_ONVIF_PORT", default="2020")
         )
     )
+    preview: bool = field(
+        default_factory=lambda: os.environ.get("CAMERA_PREVIEW", "false").lower() == "true"
+    )
+    ptz_host_override: str = field(
+        default_factory=lambda: _env_value("CAMERA_PTZ_HOST", default="")
+    )
+    ptz_username_override: str = field(
+        default_factory=lambda: _env_value("CAMERA_PTZ_USERNAME", default="")
+    )
+    ptz_password_override: str = field(
+        default_factory=lambda: _env_value("CAMERA_PTZ_PASSWORD", default="")
+    )
+    ptz_port_override: int | None = field(
+        default_factory=lambda: _optional_int_env("CAMERA_PTZ_PORT")
+    )
+
+    @property
+    def ptz_host(self) -> str:
+        return self.ptz_host_override or self.host
+
+    @property
+    def ptz_username(self) -> str:
+        return self.ptz_username_override or self.username
+
+    @property
+    def ptz_password(self) -> str:
+        return self.ptz_password_override or self.password
+
+    @property
+    def ptz_port(self) -> int:
+        return self.ptz_port_override if self.ptz_port_override is not None else self.port
 
 
 @dataclass
@@ -61,6 +102,9 @@ class TTSConfig:
         default_factory=lambda: os.environ.get("GO2RTC_URL", "http://localhost:1984")
     )
     go2rtc_stream: str = field(default_factory=lambda: os.environ.get("GO2RTC_STREAM", "tapo_cam"))
+    # Audio output routing: "local" = PC speaker only, "remote" = camera speaker only,
+    # "both" = camera speaker + PC speaker simultaneously.
+    output: str = field(default_factory=lambda: os.environ.get("TTS_OUTPUT", "local"))
 
 
 @dataclass
@@ -74,6 +118,23 @@ class MemoryConfig:
 
 
 @dataclass
+class STTConfig:
+    # Reuses ELEVENLABS_API_KEY — no separate key needed
+    elevenlabs_api_key: str = field(
+        default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", "")
+    )
+    language: str = field(default_factory=lambda: os.environ.get("STT_LANGUAGE", "ja"))
+
+
+@dataclass
+class CodingConfig:
+    workdir: str = field(default_factory=lambda: os.environ.get("CODING_WORKDIR", ""))
+    bash_enabled: bool = field(
+        default_factory=lambda: os.environ.get("CODING_BASH", "false").lower() == "true"
+    )
+
+
+@dataclass
 class AgentConfig:
     # Agent display name shown in TUI
     agent_name: str = field(default_factory=lambda: os.environ.get("AGENT_NAME", "AI"))
@@ -83,7 +144,7 @@ class AgentConfig:
         default_factory=lambda: os.environ.get("COMPANION_NAME", _default_companion_name())
     )
 
-    # Platform: "anthropic" | "gemini" | "openai" | "kimi"
+    # Platform: "anthropic" | "gemini" | "openai" | "kimi" | "glm"
     platform: str = field(default_factory=lambda: os.environ.get("PLATFORM", "anthropic"))
 
     # Unified API key (used for whichever platform is selected)
@@ -99,8 +160,38 @@ class AgentConfig:
     )
     tools_mode: str = field(default_factory=lambda: os.environ.get("TOOLS_MODE", "prompt"))
 
+    # Thinking mode: "auto" | "adaptive" | "extended" | "disabled"
+    # "auto" = adaptive for claude-sonnet-4/opus-4, disabled for others
+    thinking_mode: str = field(default_factory=lambda: os.environ.get("THINKING_MODE", "auto"))
+
+    # Budget tokens for "extended" thinking mode (ignored in "adaptive" / "disabled")
+    thinking_budget: int = field(
+        default_factory=lambda: int(os.environ.get("THINKING_BUDGET_TOKENS", "10000"))
+    )
+
+    # Effort level for adaptive thinking: "high" (default) | "medium" | "low" | "max"
+    # "max" is Opus 4.6 only. Ignored unless THINKING_MODE=adaptive (or auto on supported models).
+    thinking_effort: str = field(default_factory=lambda: os.environ.get("THINKING_EFFORT", "high"))
+
+    # ── Utility backend (optional) ─────────────────────────────────────
+    # Separate backend for non-conversation LLM calls (day summaries, emotion
+    # inference, self-model updates, etc.).  Falls back to the main backend
+    # when not configured.
+    utility_platform: str = field(default_factory=lambda: os.environ.get("UTILITY_PLATFORM", ""))
+    utility_api_key: str = field(default_factory=lambda: os.environ.get("UTILITY_API_KEY", ""))
+    utility_model: str = field(default_factory=lambda: os.environ.get("UTILITY_MODEL", ""))
+
+    # ── Scene backend (optional) ────────────────────────────────────────
+    # Separate backend for scene entity extraction — cheaper/local model.
+    # Falls back to utility backend (then main backend) when not configured.
+    scene_platform: str = field(default_factory=lambda: os.environ.get("SCENE_PLATFORM", ""))
+    scene_api_key: str = field(default_factory=lambda: os.environ.get("SCENE_API_KEY", ""))
+    scene_model: str = field(default_factory=lambda: os.environ.get("SCENE_MODEL", ""))
+
     max_tokens: int = 4096
     camera: CameraConfig = field(default_factory=CameraConfig)
     mobility: MobilityConfig = field(default_factory=MobilityConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
+    stt: STTConfig = field(default_factory=STTConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    coding: CodingConfig = field(default_factory=CodingConfig)
